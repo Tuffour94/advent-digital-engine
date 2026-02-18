@@ -5,12 +5,20 @@ import { requireUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function OrgsPage() {
-  await requireUser("/orgs");
+  const user = await requireUser("/orgs");
   const supabase = await createSupabaseServerClient();
 
-  const { data: orgs } = await supabase
-    .from("organizations")
-    .select("id,name,type,timezone,created_at")
+  const { data: memberships, error: membershipsError } = await supabase
+    .from("org_members")
+    .select("org_id, role, created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+
+  // List orgs via membership join (more robust under RLS)
+  const { data: orgs, error: orgsError } = await supabase
+    .from("org_members")
+    .select("organizations:org_id (id,name,type,timezone,created_at), role")
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(50);
 
@@ -52,6 +60,20 @@ export default async function OrgsPage() {
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="text-sm font-semibold text-slate-900">Create organization</div>
+        <div className="mt-2 text-xs text-slate-500">
+          Signed in as: <span className="font-mono">{user.email ?? user.id}</span>
+          {process.env.NEXT_PUBLIC_SUPABASE_URL ? (
+            <>
+              {" "}• Supabase: <span className="font-mono">{process.env.NEXT_PUBLIC_SUPABASE_URL}</span>
+            </>
+          ) : null}
+        </div>
+        {(membershipsError || orgsError) ? (
+          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+            {membershipsError ? <div>org_members error: {membershipsError.message}</div> : null}
+            {orgsError ? <div>orgs query error: {orgsError.message}</div> : null}
+          </div>
+        ) : null}
         <form action={createOrg} className="mt-4 grid gap-3 sm:grid-cols-3">
           <input name="name" placeholder="Name" className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
           <select name="type" className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
@@ -68,20 +90,28 @@ export default async function OrgsPage() {
       </div>
 
       <div className="mt-6 space-y-3">
-        {(orgs ?? []).map((o: any) => (
-          <div key={o.id} className="rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-900">{o.name}</div>
-                <div className="mt-1 text-xs text-slate-600">{o.type}{o.timezone ? ` • ${o.timezone}` : ""}</div>
+        {(orgs ?? []).map((row: any) => {
+          const o = row.organizations;
+          if (!o) return null;
+          return (
+            <div key={o.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">{o.name}</div>
+                  <div className="mt-1 text-xs text-slate-600">
+                    {o.type}{o.timezone ? ` • ${o.timezone}` : ""}{row.role ? ` • role: ${row.role}` : ""}
+                  </div>
+                </div>
+                <Link href={`/orgs/${o.id}/scan`} className="text-sm font-semibold text-blue-700 hover:text-blue-900">
+                  Open
+                </Link>
               </div>
-              <Link href={`/orgs/${o.id}/scan`} className="text-sm font-semibold text-blue-700 hover:text-blue-900">
-                Open
-              </Link>
             </div>
-          </div>
-        ))}
-        {(orgs ?? []).length === 0 ? <div className="text-sm text-slate-600">No organizations yet.</div> : null}
+          );
+        })}
+        {(orgs ?? []).length === 0 ? (
+          <div className="text-sm text-slate-600">No organizations yet.</div>
+        ) : null}
       </div>
     </main>
   );
