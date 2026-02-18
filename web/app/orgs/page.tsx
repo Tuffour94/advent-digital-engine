@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import OrgsClient from "./OrgsClient";
 
 export default async function OrgsPage() {
   const user = await requireUser("/orgs");
@@ -74,19 +75,8 @@ export default async function OrgsPage() {
             {orgsError ? <div>orgs query error: {orgsError.message}</div> : null}
           </div>
         ) : null}
-        <form action={createOrg} className="mt-4 grid gap-3 sm:grid-cols-3">
-          <input name="name" placeholder="Name" className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-          <select name="type" className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-            <option value="">Type…</option>
-            <option value="church">Church</option>
-            <option value="conference">Conference</option>
-            <option value="institution">Institution</option>
-          </select>
-          <input name="timezone" placeholder="Timezone (optional)" className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-          <button type="submit" className="sm:col-span-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
-            Create
-          </button>
-        </form>
+
+        <OrgsClient userId={user.id} initialError={null} />
       </div>
 
       <div className="mt-6 space-y-3">
