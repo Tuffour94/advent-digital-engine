@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,11 @@ export async function POST(req: Request) {
 
   const { name, type, timezone } = parsed.data;
 
-  const { data: org, error: orgErr } = await supabase
+  // Use service-role client to avoid RLS bootstrap issues.
+  // This endpoint is still gated by an authenticated user session above.
+  const admin = createSupabaseAdminClient();
+
+  const { data: org, error: orgErr } = await admin
     .from("organizations")
     .insert({ name: name.trim(), type, timezone: (timezone ?? "").trim() || null })
     .select("id")
@@ -33,7 +38,7 @@ export async function POST(req: Request) {
   if (orgErr) return NextResponse.json({ error: orgErr.message }, { status: 400 });
   if (!org?.id) return NextResponse.json({ error: "Org insert returned no id" }, { status: 500 });
 
-  const { error: memErr } = await supabase.from("org_members").insert({
+  const { error: memErr } = await admin.from("org_members").insert({
     org_id: org.id,
     user_id: user.id,
     role: "owner",
