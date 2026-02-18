@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export default function OrgsClient({ userId, initialError }: { userId: string; initialError?: string | null }) {
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  useMemo(() => createSupabaseBrowserClient(), []); // keep client configured; route uses cookies
   const router = useRouter();
 
   const [name, setName] = useState("");
@@ -22,21 +22,13 @@ export default function OrgsClient({ userId, initialError }: { userId: string; i
 
     setBusy(true);
     try {
-      const { data: org, error: orgErr } = await supabase
-        .from("organizations")
-        .insert({ name: name.trim(), type, timezone: timezone.trim() || null })
-        .select("id")
-        .maybeSingle();
-
-      if (orgErr) throw orgErr;
-      if (!org?.id) throw new Error("Org insert returned no id");
-
-      const { error: memErr } = await supabase.from("org_members").insert({
-        org_id: org.id,
-        user_id: userId,
-        role: "owner",
+      const resp = await fetch("/api/orgs/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), type, timezone: timezone.trim() || null }),
       });
-      if (memErr) throw memErr;
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || `Failed (${resp.status})`);
 
       setName("");
       setType("");
