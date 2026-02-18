@@ -11,7 +11,7 @@ export default function LoginClient() {
 
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(sp.get("error"));
 
   async function send() {
     setBusy(true);
