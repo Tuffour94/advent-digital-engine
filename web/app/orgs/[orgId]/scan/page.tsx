@@ -3,10 +3,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-function sha256(input: string) {
-  return require("crypto").createHash("sha256").update(input).digest("hex");
-}
+import ScanClient from "./ScanClient";
 
 export default async function ScanPage({ params }: { params: Promise<{ orgId: string }> }) {
   await requireUser("/orgs");
@@ -21,67 +18,6 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
     .eq("org_id", orgId)
     .order("created_at", { ascending: false })
     .limit(20);
-
-  async function startScan(formData: FormData) {
-    "use server";
-    const user = await requireUser(`/orgs/${orgId}/scan`);
-    const supabase = await createSupabaseServerClient();
-
-    const website = String(formData.get("website_url") || "").trim();
-    const youtube = String(formData.get("youtube_url") || "").trim();
-    const facebook = String(formData.get("facebook_url") || "").trim();
-
-    if (!website) return;
-
-    const inputs = { website_url: website, youtube_url: youtube || null, facebook_url: facebook || null };
-    const input_hash = sha256(JSON.stringify(inputs));
-
-    // Cache check: if we already have an auditor artifact for same inputs, mark cache_hit and skip.
-    const { data: cached } = await supabase
-      .from("scan_artifacts")
-      .select("id")
-      .eq("org_id", orgId)
-      .eq("artifact_type", "auditor.score")
-      .eq("input_hash", input_hash)
-      .limit(1)
-      .maybeSingle();
-
-    const cache_hit = Boolean(cached?.id);
-
-    await supabase.from("scan_jobs").insert({
-      org_id: orgId,
-      requested_by: user.id,
-      status: cache_hit ? "succeeded" : "queued",
-      inputs,
-      cache_hit,
-      used_ai: false,
-      estimated_token_cost: 0,
-      actual_token_cost: 0,
-      filter_stage: cache_hit ? "cache" : "queue",
-    });
-
-    // If not cache hit, worker would pick it up. For v1 scaffold, we just create placeholder artifacts.
-    if (!cache_hit) {
-      await supabase.from("scan_artifacts").insert({
-        org_id: orgId,
-        artifact_type: "auditor.score",
-        input_hash,
-        version: 1,
-        data: {
-          ekklesiaScore: 0,
-          grade: "F",
-          note: "Worker not implemented yet (scaffold).",
-          inputs,
-        },
-      });
-
-      await supabase
-        .from("scan_jobs")
-        .update({ status: "succeeded", filter_stage: "stub", finished_at: new Date().toISOString() })
-        .eq("org_id", orgId)
-        .eq("inputs", inputs);
-    }
-  }
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
@@ -100,13 +36,7 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="text-sm font-semibold text-slate-900">ade_scan_job (v1)</div>
         <div className="mt-1 text-xs text-slate-600">Website required. YouTube/Facebook optional. Public-only.</div>
-
-        <form action={startScan} className="mt-4 grid gap-3">
-          <input name="website_url" placeholder="Website URL (required)" className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-          <input name="youtube_url" placeholder="YouTube channel URL (optional)" className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-          <input name="facebook_url" placeholder="Facebook Page URL (optional)" className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-          <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Start scan</button>
-        </form>
+        <ScanClient orgId={orgId} />
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
