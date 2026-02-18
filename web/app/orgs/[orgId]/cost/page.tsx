@@ -29,21 +29,24 @@ export default async function CostPage({ params }: { params: Promise<{ orgId: st
 
       <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="grid grid-cols-12 gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
-          <div className="col-span-3">When</div>
+          <div className="col-span-2">When</div>
           <div className="col-span-2">Status</div>
-          <div className="col-span-2">cache_hit</div>
+          <div className="col-span-1">cache</div>
           <div className="col-span-1">AI</div>
           <div className="col-span-2">token_cost</div>
           <div className="col-span-2">stage</div>
+          <div className="col-span-2">reason_ai_used</div>
         </div>
         {(jobs ?? []).map((j: any) => (
           <div key={j.id} className="grid grid-cols-12 gap-3 px-4 py-3 text-xs">
-            <div className="col-span-3 text-slate-700">{new Date(j.created_at).toLocaleString()}</div>
+            <div className="col-span-2 text-slate-700">{new Date(j.created_at).toLocaleString()}</div>
             <div className="col-span-2 text-slate-700">{j.status}</div>
-            <div className="col-span-2 text-slate-700">{String(j.cache_hit)}</div>
+            <div className="col-span-1 text-slate-700">{String(j.cache_hit)}</div>
             <div className="col-span-1 text-slate-700">{String(j.used_ai)}</div>
             <div className="col-span-2 text-slate-700">{j.actual_token_cost ?? 0}</div>
             <div className="col-span-2 text-slate-700">{j.filter_stage ?? "—"}</div>
+            <div className="col-span-2 text-slate-700">{j.reason_ai_used ?? "—"}</div>
+            <div className="col-span-12 mt-2 text-[10px] text-slate-400">job_id: {j.id}</div>
           </div>
         ))}
         {(jobs ?? []).length === 0 ? (
