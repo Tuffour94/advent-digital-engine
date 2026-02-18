@@ -70,10 +70,10 @@ create table if not exists public.token_budgets (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete cascade,
   workflow text not null,
-  window text not null default 'daily' check (window in ('daily','weekly','monthly')),
+  budget_window text not null default 'daily' check (budget_window in ('daily','weekly','monthly')),
   limit_tokens int not null,
   created_at timestamptz not null default now(),
-  unique(org_id, workflow, window)
+  unique(org_id, workflow, budget_window)
 );
 
 create table if not exists public.token_usage_logs (
