@@ -114,7 +114,14 @@ export async function POST(req: Request) {
     const { error: scoutErr } = await admin
       .from("scan_artifacts")
       .upsert(scoutArtifact, { onConflict: "org_id,artifact_type,input_hash,version" });
-    if (scoutErr) throw new Error(`Failed to write scout.report: ${scoutErr.message}`);
+    if (scoutErr) {
+      // Safety: never fail a scan due to duplicate artifact writes.
+      if (/duplicate key value|unique constraint/i.test(scoutErr.message)) {
+        // treat as already written
+      } else {
+        throw new Error(`Failed to write scout.report: ${scoutErr.message}`);
+      }
+    }
 
     // 2) Auditor
     const score = auditorFromScoutV2(scoutReport);
@@ -135,7 +142,14 @@ export async function POST(req: Request) {
     const { error: auditorErr } = await admin
       .from("scan_artifacts")
       .upsert(auditorArtifact, { onConflict: "org_id,artifact_type,input_hash,version" });
-    if (auditorErr) throw new Error(`Failed to write auditor.score: ${auditorErr.message}`);
+    if (auditorErr) {
+      // Safety: never fail a scan due to duplicate artifact writes.
+      if (/duplicate key value|unique constraint/i.test(auditorErr.message)) {
+        // treat as already written
+      } else {
+        throw new Error(`Failed to write auditor.score: ${auditorErr.message}`);
+      }
+    }
 
     // Integrity check: verify both artifacts exist (versioned)
     const { data: scoutOk } = await admin
