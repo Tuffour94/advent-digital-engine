@@ -1,19 +1,25 @@
 import type { EvidenceItem, ScoutReport } from "@/lib/scout";
 
+export type EvidenceRef = {
+  check_id: string;
+  url: string;
+  snippet?: string | null;
+  status?: number | null;
+  found?: boolean;
+};
+
 export type CapRule = {
   rule_id: string;
   cap_max: number;
   title: string;
-  evidence_check_ids: string[];
-  evidence_urls: string[];
+  evidence: EvidenceRef[];
 };
 
 export type PenaltyRule = {
   rule_id: string;
   points: number; // negative
   title: string;
-  evidence_check_ids: string[];
-  evidence_urls: string[];
+  evidence: EvidenceRef[];
 };
 
 export type ConfidenceFlags = {
@@ -30,8 +36,10 @@ export function hasEvidence(report: ScoutReport, checkId: string) {
   return report.evidence.some((e) => e.check_id === checkId && e.found);
 }
 
-export function evidenceUrls(items: EvidenceItem[]) {
-  return Array.from(new Set(items.map((e) => e.url).filter(Boolean)));
+export function evidenceRefs(items: EvidenceItem[], max = 3): EvidenceRef[] {
+  return items
+    .slice(0, max)
+    .map((e) => ({ check_id: e.check_id, url: e.url, snippet: e.snippet ?? null, status: e.status ?? null, found: e.found }));
 }
 
 export function computeConfidence(report: ScoutReport): ConfidenceFlags {

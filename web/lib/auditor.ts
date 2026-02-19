@@ -1,5 +1,5 @@
 import type { ScoutReport, EvidenceItem } from "@/lib/scout";
-import { computeConfidence, evidenceUrls, findEvidence, hasEvidence, type CapRule, type PenaltyRule } from "@/lib/enforcement";
+import { computeConfidence, evidenceRefs, findEvidence, hasEvidence, type CapRule, type PenaltyRule } from "@/lib/enforcement";
 
 export type CategoryScore = {
   key: string;
@@ -92,6 +92,11 @@ function reason(found: boolean, yes: string, no: string) {
 export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   const s = report.signals;
 
+  // Evidence-gated scoring: if required evidence is missing, points must collapse.
+  const gate = (requiredCheckIds: string[]) => {
+    return requiredCheckIds.some((id) => has(report, id));
+  };
+
   const categories: CategoryScore[] = [];
 
   // Helpers for quality
@@ -111,7 +116,8 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   {
     const weight = 20;
     const missionFound = has(report, "mission.keyword") || has(report, "adventist.keyword") || s.has_about_or_beliefs;
-    const score = missionFound ? 18 : 6;
+    const gated = gate(["mission.keyword", "adventist.keyword", "page.about"]);
+    const score = !gated ? 3 : missionFound ? 18 : 6;
     categories.push({
       key: "mission_identity",
       label: "Mission / Identity",
@@ -138,7 +144,9 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   // 3) Events/Freshness (20)
   {
     const weight = 20;
-    const score = s.has_events ? 15 : 4;
+    const recent = s.events_recent_90d;
+    const gated = gate(["events.keyword", "page.events", "freshness.events_90d"]);
+    const score = !gated ? 2 : recent ? 18 : s.has_events ? 10 : 3;
     categories.push({
       key: "events_freshness",
       label: "Events / Freshness",
@@ -169,7 +177,9 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   {
     const weight = 20;
     const found = has(report, "media.youtube_embed") || has(report, "media.keyword") || s.has_livestream;
-    const score = found ? 16 : 4;
+    const gated = gate(["media.youtube_embed", "media.keyword", "page.media"]);
+    const recent = s.sermons_recent_6mo;
+    const score = !gated ? 2 : recent ? 18 : found ? 10 : 3;
     categories.push({
       key: "media_sermons",
       label: "Media / Sermons",
@@ -224,6 +234,8 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   const penalties: PenaltyRule[] = [];
   const flags = computeConfidence(report);
 
+  // (gate helper declared above)
+
   const catMap: Record<string, CategoryScore> = Object.fromEntries(categories.map((c) => [c.key, c]));
 
   if (catMap.mission_identity.score >= 15) strengths.push("Clear mission/identity signals on public pages");
@@ -266,8 +278,7 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
       rule_id: "CAP_LOW_PAGES",
       cap_max: 60,
       title: "<3 pages checked",
-      evidence_check_ids: [],
-      evidence_urls: report.pages_checked.map((p: any) => p.final_url).slice(0, 3),
+      evidence: report.pages_checked.slice(0, 3).map((p: any) => ({ check_id: "pages_checked", url: p.final_url, snippet: p.title ?? null, status: p.status })),
     });
   }
   if (!httpsYes) {
@@ -276,8 +287,7 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
       rule_id: "CAP_NO_HTTPS",
       cap_max: 65,
       title: "No HTTPS detected",
-      evidence_check_ids: [],
-      evidence_urls: report.pages_checked.map((p: any) => p.final_url).slice(0, 3),
+      evidence: report.pages_checked.slice(0, 3).map((p: any) => ({ check_id: "https", url: p.final_url, snippet: "URL is not https", status: p.status })),
     });
   }
   if (catMap.contact_visitability.score < 8) {
@@ -286,8 +296,10 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
       rule_id: "CAP_NO_CONTACT",
       cap_max: 65,
       title: "No Contact/Visitability",
-      evidence_check_ids: ["contact.keyword", "page.contact"],
-      evidence_urls: evidenceUrls(findEvidence(report, "page.contact")).slice(0, 3),
+      evidence: [
+        ...evidenceRefs(findEvidence(report, "page.contact"), 2),
+        ...evidenceRefs(findEvidence(report, "contact.keyword"), 1),
+      ],
     });
   }
   const brokenRate = report.signals.broken_nav_links.length / Math.max(1, 8);
@@ -297,8 +309,7 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
       rule_id: "CAP_BROKEN_NAV_10P",
       cap_max: 70,
       title: "Broken nav links >10% sample",
-      evidence_check_ids: [],
-      evidence_urls: report.signals.broken_nav_links.map((x: any) => x.url).slice(0, 8),
+      evidence: report.signals.broken_nav_links.slice(0, 8).map((x: any) => ({ check_id: "broken_nav", url: x.url, status: x.status })),
     });
   }
   if (caps.length) {
@@ -341,7 +352,130 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
     },
   ].slice(0, 8);
 
+  // Penalty ledger (negative weighting)
+  if (!s.has_homepage_cta) {
+    penalties.push({
+      rule_id: "P_NO_HOMEPAGE_CTA",
+      points: -6,
+      title: "No clear homepage CTA",
+      evidence: evidenceRefs(findEvidence(report, "ux.homepage_cta"), 1),
+    });
+  }
+
+  if (avgAltRatio < 0.6) {
+    penalties.push({
+      rule_id: "P_ALT_MISSING_40P",
+      points: -5,
+      title: "Alt tags missing on many images",
+      evidence: report.pages_checked.slice(0, 2).map((p: any) => ({
+        check_id: "a11y.alt_coverage",
+        url: p.final_url,
+        snippet: `alt coverage proxy low (page images: ${p.img_count}, with alt: ${p.img_alt_count})`,
+        status: p.status,
+      })),
+    });
+  }
+
+  if (avgFetchMs > 2500) {
+    penalties.push({
+      rule_id: "P_SLOW_TTFB_2500MS",
+      points: -7,
+      title: "Slow server response (speed proxy)",
+      evidence: report.pages_checked.slice(0, 2).map((p: any) => ({
+        check_id: "ux.speed_proxy",
+        url: p.final_url,
+        snippet: `fetch ~${p.fetch_ms}ms`,
+        status: p.status,
+      })),
+    });
+  }
+
+  if (!s.has_sitemap) {
+    penalties.push({
+      rule_id: "P_NO_SITEMAP",
+      points: -3,
+      title: "No sitemap.xml detected",
+      evidence: evidenceRefs(findEvidence(report, "trust.sitemap"), 1),
+    });
+  }
+
+  // Readability proxies
+  const avgH2 = pageCount ? Math.round(pages.reduce((acc: number, p: any) => acc + (p.h2_count ?? 0), 0) / pageCount) : 0;
+  if (avgTextLen > 4000 && avgH2 < 2) {
+    penalties.push({
+      rule_id: "P_DENSE_TEXT",
+      points: -5,
+      title: "Dense/unstructured text blocks",
+      evidence: report.pages_checked.slice(0, 1).map((p: any) => ({ check_id: "content.structure", url: p.final_url, snippet: `avg text ~${avgTextLen} chars, low headings`, status: p.status })),
+    });
+  }
+
+  if (avgH2 === 0 && avgTextLen > 1200) {
+    penalties.push({
+      rule_id: "P_POOR_TYPOGRAPHY_PROXY",
+      points: -4,
+      title: "Weak heading/structure signals (readability proxy)",
+      evidence: report.pages_checked.slice(0, 1).map((p: any) => ({ check_id: "content.headings", url: p.final_url, snippet: `h2_count ~${avgH2}`, status: p.status })),
+    });
+  }
+
   const penalties_total = penalties.reduce((sum, p) => sum + p.points, 0);
+
+  // Hard caps (non-negotiable)
+  const applyCap = (rule_id: string, cap_max: number, title: string, evidence: any[]) => {
+    if (ekklesiaScore > cap_max) ekklesiaScore = cap_max;
+    caps.push({ rule_id, cap_max, title, evidence });
+  };
+
+  if (!s.has_about_or_beliefs) {
+    applyCap("CAP_NO_ABOUT_MISSION", 65, "No About/Mission/Beliefs found", evidenceRefs(findEvidence(report, "page.about"), 2));
+  }
+  if (!s.has_leadership_info) {
+    applyCap("CAP_NO_LEADERSHIP", 60, "No leadership/pastor info found", evidenceRefs(findEvidence(report, "trust.leadership_info"), 1));
+  }
+  if (!s.has_physical_address) {
+    applyCap("CAP_NO_ADDRESS", 60, "No physical address found", evidenceRefs(findEvidence(report, "trust.physical_address"), 1));
+  }
+  const viewportFound = pages.some((p: any) => p.has_viewport_meta);
+  if (!viewportFound) {
+    applyCap("CAP_NO_VIEWPORT", 60, "No mobile viewport meta detected", report.pages_checked.slice(0, 1).map((p: any) => ({ check_id: "mobile.viewport", url: p.final_url, snippet: "meta viewport missing", status: p.status })));
+  }
+  const brokenRate15 = report.signals.broken_nav_links.length / Math.max(1, 8);
+  if (brokenRate15 > 0.15) {
+    applyCap("CAP_BROKEN_NAV_15P", 55, "Broken navigation links >15% sample", report.signals.broken_nav_links.map((x: any) => ({ check_id: "broken_nav", url: x.url, status: x.status })));
+  }
+  if (!s.events_recent_90d) {
+    applyCap("CAP_NO_RECENT_EVENTS_90D", 70, "No recent events detected (≤90 days)", evidenceRefs(findEvidence(report, "freshness.events_90d"), 1));
+  }
+  if (!s.sermons_recent_6mo) {
+    applyCap("CAP_OLD_SERMONS_6MO", 68, "Sermons not recent (≤6 months)", evidenceRefs(findEvidence(report, "freshness.sermons_6mo"), 1));
+  }
+  if (!s.copyright_fresh) {
+    applyCap("CAP_COPYRIGHT_STALE", 65, "Copyright/date freshness looks stale", evidenceRefs(findEvidence(report, "maintenance.copyright_fresh"), 1));
+  }
+
+  // Apply penalty total after caps base computation (penalties reduce raw_total influence)
+  ekklesiaScore = clamp(ekklesiaScore + penalties_total, 0, 100);
+
+  // A-grade lock
+  let a_grade_allowed = true;
+  const websiteQuality = catMap.website_quality?.score ?? 0;
+  const freshness = catMap.events_freshness?.score ?? 0;
+  const contentDepth = Math.min(20, Math.round((avgTextLen / 2500) * 20));
+  const ux = Math.min(20, Math.round(((viewportFound ? 10 : 0) + (avgFetchMs < 2500 ? 10 : 0))));
+
+  if (caps.length) a_grade_allowed = false;
+  if (flags.low_confidence_score) a_grade_allowed = false;
+  if (websiteQuality < 17) a_grade_allowed = false;
+  if (freshness < 15) a_grade_allowed = false;
+  if (contentDepth < 15) a_grade_allowed = false;
+  if (ux < 16) a_grade_allowed = false;
+  if (!s.has_leadership_info || !s.has_physical_address) a_grade_allowed = false;
+
+  if (!a_grade_allowed && ekklesiaScore >= 85) {
+    ekklesiaScore = 84; // forbid A
+    red_flags.push("A-grade lock applied (quality/freshness/confidence requirements not met)");
+  }
 
   const website_quality_check: WebsiteQualityCheck = {
     speed: avgFetchMs < 2500 ? "pass" : avgFetchMs < 4000 ? "weak" : "fail",
@@ -371,7 +505,7 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
       caps,
       penalties,
       flags,
-      a_grade_allowed: true,
+      a_grade_allowed,
     },
   };
 }

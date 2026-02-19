@@ -143,6 +143,27 @@ export default async function ScanJobPage({
 
       {/* Summary */}
       <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        {/* Enforcement banner */}
+        {a?.enforcement ? (
+          <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-xs font-semibold tracking-wide text-slate-600">ENFORCEMENT</div>
+            <div className="mt-2 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs">
+                <div className="font-semibold text-slate-900">Caps triggered</div>
+                <div className="mt-1 text-slate-700">{(a.enforcement.caps?.length ?? 0)}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs">
+                <div className="font-semibold text-slate-900">Penalties</div>
+                <div className="mt-1 text-slate-700">{a.penalties_total ?? 0} pts</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs">
+                <div className="font-semibold text-slate-900">Confidence</div>
+                <div className="mt-1 text-slate-700">coverage gap: {(a.enforcement.flags?.missing_coverage_ratio ?? 0) * 100}%</div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex items-start justify-between gap-6">
           <div>
             <div className="text-xs font-semibold tracking-wide text-slate-600">EKKLESIASCORE</div>
@@ -274,6 +295,62 @@ export default async function ScanJobPage({
           </div>
         </div>
       </div>
+
+      {/* Enforcement details (transparent) */}
+      {a?.enforcement ? (
+        <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="text-sm font-semibold text-slate-900">Caps & penalties (why your score moved)</div>
+          <div className="mt-1 text-xs text-slate-600">Every cap/penalty includes rule ID + evidence URL + snippet.</div>
+
+          {(a.enforcement.caps?.length ?? 0) ? (
+            <div className="mt-4">
+              <div className="text-xs font-semibold text-slate-700">Caps applied</div>
+              <div className="mt-2 space-y-2">
+                {a.enforcement.caps.map((c: any, i: number) => (
+                  <div key={i} className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs">
+                    <div className="font-semibold text-red-900">{c.rule_id}: score capped at ≤{c.cap_max}</div>
+                    <div className="mt-1 text-red-800">{c.title}</div>
+                    <div className="mt-2 space-y-1">
+                      {(c.evidence ?? []).slice(0, 3).map((e: any, j: number) => (
+                        <div key={j} className="text-[11px] text-red-900 break-all">
+                          {e.url}{e.snippet ? ` — “${e.snippet}”` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {(a.enforcement.penalties?.length ?? 0) ? (
+            <div className="mt-4">
+              <div className="text-xs font-semibold text-slate-700">Penalties</div>
+              <div className="mt-2 space-y-2">
+                {a.enforcement.penalties.map((p: any, i: number) => (
+                  <div key={i} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs">
+                    <div className="font-semibold text-amber-900">{p.rule_id}: {p.points} pts</div>
+                    <div className="mt-1 text-amber-900">{p.title}</div>
+                    <div className="mt-2 space-y-1">
+                      {(p.evidence ?? []).slice(0, 3).map((e: any, j: number) => (
+                        <div key={j} className="text-[11px] text-amber-900 break-all">
+                          {e.url}{e.snippet ? ` — “${e.snippet}”` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+            Flags: needs_deeper_crawl={String(a.enforcement.flags?.needs_deeper_crawl ?? false)} • low_confidence_score={String(
+              a.enforcement.flags?.low_confidence_score ?? false
+            )} • missing_coverage_ratio={a.enforcement.flags?.missing_coverage_ratio ?? 0}
+          </div>
+        </div>
+      ) : null}
 
       {/* Breakdown */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
