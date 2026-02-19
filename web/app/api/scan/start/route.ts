@@ -39,22 +39,26 @@ export async function POST(req: Request) {
 
   const admin = createSupabaseAdminClient();
 
-  // Cache check: require BOTH scout.report and auditor.score.
+  const ARTIFACT_VERSION = 2;
+
+  // Cache check: require BOTH scout.report and auditor.score (versioned)
   const { data: cachedScout } = await admin
     .from("scan_artifacts")
-    .select("id")
+    .select("id,version")
     .eq("org_id", org_id)
     .eq("artifact_type", "scout.report")
     .eq("input_hash", input_hash)
+    .eq("version", ARTIFACT_VERSION)
     .limit(1)
     .maybeSingle();
 
   const { data: cachedAuditor } = await admin
     .from("scan_artifacts")
-    .select("id")
+    .select("id,version")
     .eq("org_id", org_id)
     .eq("artifact_type", "auditor.score")
     .eq("input_hash", input_hash)
+    .eq("version", ARTIFACT_VERSION)
     .limit(1)
     .maybeSingle();
 
@@ -99,7 +103,7 @@ export async function POST(req: Request) {
       job_id: job.id,
       artifact_type: "scout.report",
       input_hash,
-      version: 1,
+      version: ARTIFACT_VERSION,
       data: {
         inputs,
         fetched_at: new Date().toISOString(),
@@ -120,7 +124,7 @@ export async function POST(req: Request) {
       job_id: job.id,
       artifact_type: "auditor.score",
       input_hash,
-      version: 1,
+      version: ARTIFACT_VERSION,
       data: {
         ...score,
         inputs,
@@ -133,13 +137,14 @@ export async function POST(req: Request) {
       .upsert(auditorArtifact, { onConflict: "org_id,artifact_type,input_hash,version" });
     if (auditorErr) throw new Error(`Failed to write auditor.score: ${auditorErr.message}`);
 
-    // Integrity check: verify both artifacts exist (job_id or cache hash)
+    // Integrity check: verify both artifacts exist (versioned)
     const { data: scoutOk } = await admin
       .from("scan_artifacts")
       .select("id")
       .eq("org_id", org_id)
       .eq("artifact_type", "scout.report")
       .eq("input_hash", input_hash)
+      .eq("version", ARTIFACT_VERSION)
       .limit(1)
       .maybeSingle();
 
@@ -149,6 +154,7 @@ export async function POST(req: Request) {
       .eq("org_id", org_id)
       .eq("artifact_type", "auditor.score")
       .eq("input_hash", input_hash)
+      .eq("version", ARTIFACT_VERSION)
       .limit(1)
       .maybeSingle();
 

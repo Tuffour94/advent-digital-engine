@@ -27,31 +27,18 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
   const latestJob = (jobs ?? [])[0];
   const latestHash = latestJob?.inputs ? sha256(JSON.stringify(latestJob.inputs)) : null;
 
-  const { data: latestByJob } = latestJob?.id
-    ? await supabase
-        .from("scan_artifacts")
-        .select("id,artifact_type,data,created_at,version")
-        .eq("org_id", orgId)
-        .eq("job_id", latestJob.id)
-        .eq("artifact_type", "auditor.score")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    : ({ data: null } as any);
-
-  const { data: latestByHash } = latestHash
+  const { data: latestArtifact } = latestHash
     ? await supabase
         .from("scan_artifacts")
         .select("id,artifact_type,data,created_at,version")
         .eq("org_id", orgId)
         .eq("artifact_type", "auditor.score")
         .eq("input_hash", latestHash)
+        .order("version", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle()
     : ({ data: null } as any);
-
-  const latestArtifact = latestByJob ?? latestByHash;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">

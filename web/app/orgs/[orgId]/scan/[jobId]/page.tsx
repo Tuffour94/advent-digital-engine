@@ -41,30 +41,19 @@ export default async function ScanJobPage({
 
   const inputHash = job?.inputs ? sha256(JSON.stringify(job.inputs)) : null;
 
-  // Prefer artifact linked to this job_id, but fall back to cache by input_hash (older jobs / cache hits).
-  const { data: artifactByJob } = await supabase
-    .from("scan_artifacts")
-    .select("id,artifact_type,data,created_at,input_hash,version")
-    .eq("org_id", orgId)
-    .eq("job_id", jobId)
-    .eq("artifact_type", "auditor.score")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const { data: artifactByHash } = inputHash
+  // Always prefer the newest artifact version for this input_hash.
+  const { data: artifact } = inputHash
     ? await supabase
         .from("scan_artifacts")
         .select("id,artifact_type,data,created_at,input_hash,version")
         .eq("org_id", orgId)
         .eq("artifact_type", "auditor.score")
         .eq("input_hash", inputHash)
+        .order("version", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle()
     : ({ data: null } as any);
-
-  const artifact = artifactByJob ?? artifactByHash;
 
   const a = artifact?.data ?? null;
   const redFlags = (a?.redFlags ?? a?.red_flags ?? []) as any[];
