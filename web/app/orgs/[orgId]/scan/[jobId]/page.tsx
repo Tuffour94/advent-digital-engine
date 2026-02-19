@@ -76,8 +76,44 @@ export default async function ScanJobPage({
   const grade = a?.grade ?? "—";
   const cats = a?.category_scores ? (Object.values(a.category_scores) as any[]) : [];
   const wins = (a?.top_wins ?? a?.strengths ?? []).slice(0, 3);
-  const risks = (a?.top_risks ?? a?.red_flags ?? []).slice(0, 3);
+
+  // Hard risks + soft risks (largest gaps) so Top Risks is never empty.
+  const hardRisks = (a?.top_risks ?? a?.red_flags ?? []).slice(0, 3);
+  const softRisks = cats
+    .map((c: any) => ({
+      key: c.key,
+      label: c.label,
+      score: c.score,
+      weight: c.weight,
+      gap: Math.max(0, (c.weight ?? 0) - (c.score ?? 0)),
+      reason: c.reasons?.[0] ?? "",
+    }))
+    .sort((x: any, y: any) => y.gap - x.gap)
+    .filter((x: any) => x.gap > 0)
+    .slice(0, 3)
+    .map((x: any) => `${x.label} is good (${x.score}/${x.weight}) but can be improved (${x.gap} pts gap).`);
+
+  const risks = (hardRisks.length ? hardRisks : softRisks).slice(0, 3);
+
   const nextSteps = (a?.recommended_next_steps ?? []).slice(0, 8);
+
+  // Executive summary + lightweight benchmark context (deterministic)
+  const execSummary = (() => {
+    const topCats = cats
+      .slice()
+      .sort((x: any, y: any) => (y.score / y.weight) - (x.score / x.weight))
+      .slice(0, 2)
+      .map((c: any) => c.label.toLowerCase());
+    const lowCats = cats
+      .slice()
+      .sort((x: any, y: any) => (x.score / x.weight) - (y.score / y.weight))
+      .slice(0, 2)
+      .map((c: any) => c.label.toLowerCase());
+
+    return `This church shows strong ${topCats.join(" and ")}. Improving ${lowCats.join(" and ")} will increase engagement and clarity for visitors.`;
+  })();
+
+  const benchmarkLine = ekk >= 90 ? "Top-tier digital presence." : ekk >= 75 ? "Above average digital health." : ekk >= 60 ? "Mid-range digital health." : "Digital health needs improvement.";
 
   const evidence = (a?.evidence ?? s?.evidence ?? []) as any[];
   const pagesChecked = (s?.pages_checked ?? a?.pages_checked ?? []) as any[];
@@ -106,27 +142,28 @@ export default async function ScanJobPage({
       </div>
 
       {/* Summary */}
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex items-start justify-between gap-4">
+      <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex items-start justify-between gap-6">
           <div>
-            <div className="text-xs font-semibold text-slate-600">EkklesiaScore</div>
-            <div className="mt-1 text-5xl font-semibold tracking-tight text-slate-900">{ekk}</div>
+            <div className="text-xs font-semibold tracking-wide text-slate-600">EKKLESIASCORE</div>
+            <div className="mt-1 text-6xl font-semibold tracking-tight text-slate-900">{ekk}</div>
+            <div className="mt-3 text-sm text-slate-700">{execSummary}</div>
+            <div className="mt-1 text-xs font-semibold text-slate-500">{benchmarkLine}</div>
           </div>
-          <div className={`rounded-2xl px-5 py-3 text-white text-3xl font-semibold ${gradeColor(grade)}`}>{grade}</div>
+          <div className={`rounded-2xl px-6 py-3 text-white text-3xl font-semibold shadow-sm ${gradeColor(grade)}`}>{grade}</div>
         </div>
 
         {/* Weighted contribution bar (opacity shows performance) */}
         {cats.length ? (
-          <div className="mt-4 h-4 w-full overflow-hidden rounded-full bg-slate-100">
-            <div className="flex h-4 w-full">
+          <div className="mt-5 h-5 w-full overflow-hidden rounded-full bg-slate-100">
+            <div className="flex h-5 w-full">
               {cats.map((c: any) => {
                 const pct = Math.max(1, Math.round((c.weight / 100) * 1000) / 10);
                 const fill = c.weight ? c.score / c.weight : 0;
                 return (
                   <div
                     key={c.key}
-                    className="bg-slate-900"
-                    style={{ width: `${pct}%`, opacity: 0.25 + 0.75 * Math.max(0, Math.min(1, fill)) }}
+                    className="bg-blue-700"                    style={{ width: `${pct}%`, opacity: 0.25 + 0.75 * Math.max(0, Math.min(1, fill)) }}
                     title={`${c.label}: ${c.score}/${c.weight}`}
                   />
                 );
@@ -187,8 +224,11 @@ export default async function ScanJobPage({
                   </div>
                   <div className="text-xs font-semibold text-slate-700">{c.score}/{c.weight}</div>
                 </div>
-                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-2 rounded-full bg-slate-900" style={{ width: `${pct}%` }} />
+                <div className="mt-3 h-3.5 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-3.5 rounded-full bg-gradient-to-r from-blue-700 to-blue-500"
+                    style={{ width: `${pct}%` }}
+                  />
                 </div>
               </div>
             );
@@ -231,7 +271,8 @@ export default async function ScanJobPage({
       />
 
       <details className="no-print mt-6">
-        <summary className="cursor-pointer text-sm font-semibold text-slate-900">Raw JSON (debug)</summary>
+        <summary className="cursor-pointer text-sm font-semibold text-slate-900">Advanced (Developer mode)</summary>
+        <div className="mt-2 text-xs text-slate-600">Raw JSON is hidden from normal users.</div>
         <pre className="mt-3 overflow-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">{JSON.stringify({ auditor: a, scout: s }, null, 2)}</pre>
         <div className="mt-2 text-[11px] text-slate-500">Signed-in user: {user.email ?? user.id}</div>
       </details>

@@ -1,30 +1,30 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { dedupeEvidence, groupEvidence, type EvidenceRow } from "./evidenceUtils";
 
 export default function ReportClient({
   reportUrl,
   evidence,
 }: {
   reportUrl: string;
-  evidence: Array<{ check_id: string; url: string; found: boolean; snippet?: string | null }>;
+  evidence: EvidenceRow[];
 }) {
-  const categories = useMemo(() => {
-    const bucket: Record<string, number> = {};
-    for (const e of evidence) {
-      const k = e.check_id.split(".")[0] || "other";
-      bucket[k] = (bucket[k] ?? 0) + 1;
-    }
-    return Object.keys(bucket).sort((a, b) => a.localeCompare(b));
-  }, [evidence]);
+  const deduped = useMemo(() => dedupeEvidence(evidence), [evidence]);
+  const groups = useMemo(() => groupEvidence(deduped), [deduped]);
+  const categories = useMemo(() => groups.map(([k]) => k), [groups]);
 
   const [filter, setFilter] = useState<string>("all");
 
+  const [copied, setCopied] = useState(false);
+
   async function copyLink() {
     await navigator.clipboard.writeText(reportUrl);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
   }
 
-  const filtered = filter === "all" ? evidence : evidence.filter((e) => e.check_id.startsWith(filter + "."));
+  const filtered = filter === "all" ? deduped : deduped.filter((e) => e.check_id.startsWith(filter + "."));
 
   return (
     <>
@@ -34,7 +34,7 @@ export default function ReportClient({
           onClick={copyLink}
           className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900"
         >
-          Copy link to report
+          {copied ? "✓ Copied" : "Copy link to report"}
         </button>
         <button
           type="button"
@@ -75,17 +75,29 @@ export default function ReportClient({
           </div>
         </div>
 
-        <div className="mt-4 space-y-2">
-          {filtered.slice(0, 200).map((e, idx) => (
-            <div key={idx} className="rounded-xl border border-slate-200 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-semibold text-slate-900">{e.check_id}</div>
-                <div className={"text-[11px] font-semibold " + (e.found ? "text-emerald-700" : "text-red-700")}>
-                  {e.found ? "FOUND" : "MISSING"}
-                </div>
+        <div className="mt-4 space-y-6">
+          {(filter === "all" ? groups : groupEvidence(filtered)).map(([cat, rows]) => (
+            <div key={cat} className="rounded-2xl border border-slate-200 p-4">
+              <div className="text-xs font-semibold tracking-wide text-slate-700">{cat.toUpperCase()}</div>
+              <div className="mt-3 space-y-2">
+                {rows.slice(0, 60).map((e, idx) => (
+                  <div key={idx} className="rounded-xl border border-slate-200 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-slate-900">{e.check_id}</div>
+                      <span
+                        className={
+                          "rounded-full px-2 py-0.5 text-[11px] font-semibold border " +
+                          (e.found ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200")
+                        }
+                      >
+                        {e.found ? "Detected" : "Missing"}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-600 break-all">{e.url}</div>
+                    {e.snippet ? <div className="mt-2 text-xs text-slate-800">“{e.snippet}”</div> : null}
+                  </div>
+                ))}
               </div>
-              <div className="mt-1 text-[11px] text-slate-600 break-all">{e.url}</div>
-              {e.snippet ? <div className="mt-2 text-xs text-slate-700">“{e.snippet}”</div> : null}
             </div>
           ))}
           {filtered.length === 0 ? <div className="text-sm text-slate-600">No evidence rows.</div> : null}
