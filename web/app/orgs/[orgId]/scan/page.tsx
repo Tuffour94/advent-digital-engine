@@ -4,6 +4,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import ScanClient from "./ScanClient";
+import ClearHistoryClient from "./ClearHistoryClient";
 
 export default async function ScanPage({ params }: { params: Promise<{ orgId: string }> }) {
   await requireUser("/orgs");
@@ -12,12 +13,16 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
 
   const { data: org } = await supabase.from("organizations").select("id,name,type").eq("id", orgId).maybeSingle();
 
-  const { data: jobs } = await supabase
+  const { data: jobsAll } = await supabase
     .from("scan_jobs")
-    .select("id,status,inputs,cache_hit,used_ai,actual_token_cost,created_at,error")
+    .select("id,status,inputs,cache_hit,created_at,error")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(50);
+
+  // Default: hide legacy failed rows (they destroy trust and aren’t user-facing)
+  const jobs = (jobsAll ?? []).filter((j: any) => j.status !== "failed").slice(0, 20);
+  const legacyFailedCount = (jobsAll ?? []).filter((j: any) => j.status === "failed").length;
 
   const { scanInputHash, normalizeInputs } = await import("@/lib/scanKey");
 
@@ -60,9 +65,17 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
       <p className="mt-2 text-sm text-slate-600">Org: {org?.name ?? orgId}</p>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="text-sm font-semibold text-slate-900">ade_scan_job (v1)</div>
-        <div className="mt-1 text-xs text-slate-600">Website required. YouTube/Facebook optional. Public-only.</div>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Start a scan</div>
+            <div className="mt-1 text-xs text-slate-600">Public-only. No AI. Generates a consulting-style audit report.</div>
+          </div>
+          <ClearHistoryClient orgId={orgId} />
+        </div>
         <ScanClient orgId={orgId} />
+        {legacyFailedCount ? (
+          <div className="mt-3 text-[11px] text-slate-500">Hidden legacy failed rows: {legacyFailedCount} (use “Clear old failed rows” if you want them removed).</div>
+        ) : null}
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
@@ -203,7 +216,8 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="text-sm font-semibold text-slate-900">Recent scans</div>
+        <div className="text-sm font-semibold text-slate-900">Scan history</div>
+        <div className="mt-1 text-xs text-slate-600">Open a scan to view the full audit report.</div>
         <div className="mt-3 space-y-2">
           {(jobs ?? []).map((j: any) => (
             <div key={j.id} className="rounded-xl border border-slate-200 p-3 text-sm">
@@ -211,9 +225,7 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
                 <div className="font-semibold text-slate-900">{j.status}</div>
                 <div className="text-xs text-slate-500">{new Date(j.created_at).toLocaleString()}</div>
               </div>
-              <div className="mt-1 text-xs text-slate-600">
-                cache_hit: {String(j.cache_hit)} • used_ai: {String(j.used_ai)} • token_cost: {j.actual_token_cost ?? 0}
-              </div>
+              <div className="mt-1 text-xs text-slate-600">cache_hit: {String(j.cache_hit)}</div>
               <div className="mt-2">
                 <Link href={`/orgs/${orgId}/scan/${j.id}`} className="text-xs font-semibold text-blue-700 hover:text-blue-900">
                   View Results
