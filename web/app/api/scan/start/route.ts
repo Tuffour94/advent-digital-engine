@@ -82,44 +82,56 @@ export async function POST(req: Request) {
   if (!job?.id) return NextResponse.json({ error: "Job insert returned no id" }, { status: 500 });
 
   try {
-    if (!cache_hit) {
-      // 1) Scout
-      const scout = await scoutWebsite(inputs.website_url);
-      const scoutArtifact = {
-        org_id,
-        job_id: job.id,
-        artifact_type: "scout.report",
-        input_hash,
-        version: 1,
-        data: {
-          inputs,
-          fetched_at: new Date().toISOString(),
-          html_length: scout.html_length,
-          signals: scout.signals,
-        },
-      };
+    if (cache_hit) {
+      // No duplicate analysis. Mark succeeded immediately.
+      await admin
+        .from("scan_jobs")
+        .update({ status: "succeeded", filter_stage: "cache", finished_at: new Date().toISOString() })
+        .eq("id", job.id);
 
-      const { error: scoutErr } = await admin.from("scan_artifacts").insert(scoutArtifact);
-      if (scoutErr) throw new Error(`Failed to write scout.report: ${scoutErr.message}`);
-
-      // 2) Auditor
-      const score = auditorFromScout(scout.signals);
-      const auditorArtifact = {
-        org_id,
-        job_id: job.id,
-        artifact_type: "auditor.score",
-        input_hash,
-        version: 1,
-        data: {
-          ...score,
-          inputs,
-          computed_at: new Date().toISOString(),
-        },
-      };
-
-      const { error: auditorErr } = await admin.from("scan_artifacts").insert(auditorArtifact);
-      if (auditorErr) throw new Error(`Failed to write auditor.score: ${auditorErr.message}`);
+      return NextResponse.json({ ok: true, job: { ...job, status: "succeeded", cache_hit: true } });
     }
+
+    // 1) Scout
+    const scout = await scoutWebsite(inputs.website_url);
+    const scoutArtifact = {
+      org_id,
+      job_id: job.id,
+      artifact_type: "scout.report",
+      input_hash,
+      version: 1,
+      data: {
+        inputs,
+        fetched_at: new Date().toISOString(),
+        html_length: scout.html_length,
+        signals: scout.signals,
+      },
+    };
+
+    const { error: scoutErr } = await admin
+      .from("scan_artifacts")
+      .upsert(scoutArtifact, { onConflict: "org_id,artifact_type,input_hash,version" });
+    if (scoutErr) throw new Error(`Failed to write scout.report: ${scoutErr.message}`);
+
+    // 2) Auditor
+    const score = auditorFromScout(scout.signals);
+    const auditorArtifact = {
+      org_id,
+      job_id: job.id,
+      artifact_type: "auditor.score",
+      input_hash,
+      version: 1,
+      data: {
+        ...score,
+        inputs,
+        computed_at: new Date().toISOString(),
+      },
+    };
+
+    const { error: auditorErr } = await admin
+      .from("scan_artifacts")
+      .upsert(auditorArtifact, { onConflict: "org_id,artifact_type,input_hash,version" });
+    if (auditorErr) throw new Error(`Failed to write auditor.score: ${auditorErr.message}`);
 
     // Integrity check: verify both artifacts exist (job_id or cache hash)
     const { data: scoutOk } = await admin
