@@ -170,6 +170,11 @@ export default async function ScanJobPage({
       {/* Breakdown */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="text-sm font-semibold text-slate-900">Category breakdown</div>
+        {!cats.length ? (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            Report incomplete (missing category_scores). Re-run the scan to regenerate artifacts with the latest report schema.
+          </div>
+        ) : null}
         <div className="mt-4 space-y-3">
           {cats.map((c: any) => {
             const pct = Math.round((c.score / c.weight) * 100);

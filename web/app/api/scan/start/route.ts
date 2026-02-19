@@ -68,7 +68,24 @@ export async function POST(req: Request) {
     .limit(1)
     .maybeSingle();
 
-  const cache_hit = Boolean(cachedScout?.id && cachedAuditor?.id);
+  let cache_hit = Boolean(cachedScout?.id && cachedAuditor?.id);
+
+  // If cache artifacts exist but are missing required fields, do NOT reuse cache.
+  if (cache_hit) {
+    const { data: cachedAuditorArtifact } = await admin
+      .from("scan_artifacts")
+      .select("data")
+      .eq("org_id", org_id)
+      .eq("artifact_type", "auditor.score")
+      .eq("input_hash", input_hash)
+      .eq("version", ARTIFACT_VERSION)
+      .limit(1)
+      .maybeSingle();
+
+    const d: any = cachedAuditorArtifact?.data ?? null;
+    const ok = Boolean(d?.category_scores && Object.keys(d.category_scores).length && (d?.evidence?.length ?? 0) > 0);
+    if (!ok) cache_hit = false;
+  }
 
   // Create job in running state.
   const { data: job, error: jobErr } = await admin
