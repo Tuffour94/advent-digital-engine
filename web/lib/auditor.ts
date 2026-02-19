@@ -21,8 +21,18 @@ export type NextStep = {
   impact?: "low" | "medium" | "high";
 };
 
+export type WebsiteQualityCheck = {
+  speed: "pass" | "weak" | "fail";
+  mobile: "pass" | "weak" | "fail";
+  content_depth: "pass" | "weak" | "fail";
+  https: "yes" | "no";
+  navigation: "good" | "fair" | "poor";
+  maintenance: "up_to_date" | "stale";
+};
+
 export type AuditorScoreV2 = {
-  ekklesiaScore: number;
+  ekklesiaScore: number; // normalized 0–100
+  raw_total: number; // 0–120
   grade: string;
   strengths: string[];
   red_flags: string[];
@@ -30,9 +40,11 @@ export type AuditorScoreV2 = {
   top_wins: string[];
   top_risks: string[];
   recommended_next_steps: NextStep[];
-  category_scores: Record<string, CategoryScore>;
+  category_scores: Record<string, CategoryScore>; // each weight=20, raw_total sum=120
   evidence: EvidenceItem[];
   pages_checked: Array<{ url: string; status: number; title: string | null }>;
+  website_quality_check: WebsiteQualityCheck;
+  caps_applied: string[];
 };
 
 function clamp(n: number, lo: number, hi: number) {
@@ -70,157 +82,188 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
 
   const categories: CategoryScore[] = [];
 
-  // Mission clarity (0-20)
+  // Helpers for quality
+  const pages = report.pages_checked || [];
+  const pageCount = pages.length;
+  const avgFetchMs = pageCount ? Math.round(pages.reduce((acc: number, p: any) => acc + (p.fetch_ms ?? 0), 0) / pageCount) : 0;
+  const avgTextLen = pageCount ? Math.round(pages.reduce((acc: number, p: any) => acc + (p.text_length ?? 0), 0) / pageCount) : 0;
+  const avgAltRatio = (() => {
+    const imgs = pages.reduce((acc: number, p: any) => acc + (p.img_count ?? 0), 0);
+    const alts = pages.reduce((acc: number, p: any) => acc + (p.img_alt_count ?? 0), 0);
+    return imgs ? alts / imgs : 1;
+  })();
+
+  const httpsYes = pages.some((p: any) => p.has_https) ? true : false;
+
+  // 1) Mission/Identity (20)
   {
     const weight = 20;
     const missionFound = has(report, "mission.keyword") || has(report, "adventist.keyword") || s.has_about_or_beliefs;
     const score = missionFound ? 18 : 6;
     categories.push({
-      key: "mission_clarity",
-      label: "Mission clarity",
+      key: "mission_identity",
+      label: "Mission / Identity",
       score,
       weight,
       reasons: [reason(missionFound, "Mission/identity signals detected", "No strong mission/identity signals detected")],
     });
   }
 
-  // Events / Calendar (0-15)
+  // 2) Contact/Visitability (20)
   {
-    const weight = 15;
-    const found = s.has_events;
-    const score = found ? 12 : 3;
+    const weight = 20;
+    const contactStrong = s.has_contact && (has(report, "service_times.keyword") || has(report, "contact.keyword"));
+    const score = contactStrong ? 18 : s.has_contact ? 12 : 3;
     categories.push({
-      key: "events",
-      label: "Events / Calendar",
+      key: "contact_visitability",
+      label: "Contact / Visitability",
       score,
       weight,
-      reasons: [reason(found, "Events/calendar signals detected", "No events/calendar signals detected")],
+      reasons: [reason(s.has_contact, "Contact path detected", "No clear contact path detected")],
     });
   }
 
-  // Giving / Support (0-15)
+  // 3) Events/Freshness (20)
   {
-    const weight = 15;
-    const found = s.has_giving;
-    const provider = hasPrefix(report, "giving.");
-    const score = found ? (provider ? 15 : 12) : 2;
+    const weight = 20;
+    const score = s.has_events ? 15 : 4;
     categories.push({
-      key: "giving",
+      key: "events_freshness",
+      label: "Events / Freshness",
+      score,
+      weight,
+      reasons: [reason(s.has_events, "Events/calendar signals detected", "No events/calendar signals detected")],
+    });
+  }
+
+  // 4) Giving/Support (20)
+  {
+    const weight = 20;
+    const provider = hasPrefix(report, "giving.");
+    const score = s.has_giving ? (provider ? 20 : 16) : 3;
+    categories.push({
+      key: "giving_support",
       label: "Giving / Support",
       score,
       weight,
       reasons: [
-        reason(found, "Giving/donation path detected", "No giving path detected"),
-        reason(provider, "Giving provider detected (Tithe.ly/Pushpay/Subsplash/AdventistGiving)", "No known giving provider detected"),
+        reason(s.has_giving, "Giving/donation path detected", "No giving path detected"),
+        reason(provider, "Giving provider detected", "No known giving provider detected"),
       ].filter(Boolean),
     });
   }
 
-  // Media / Livestream / Sermons (0-15)
+  // 5) Media/Sermons (20)
   {
-    const weight = 15;
+    const weight = 20;
     const found = has(report, "media.youtube_embed") || has(report, "media.keyword") || s.has_livestream;
-    const score = found ? 12 : 4;
+    const score = found ? 16 : 4;
     categories.push({
-      key: "media",
-      label: "Media / Livestream / Sermons",
+      key: "media_sermons",
+      label: "Media / Sermons",
       score,
       weight,
-      reasons: [reason(found, "Media/livestream/sermon signals detected", "No sermon/media/livestream signals detected")],
+      reasons: [reason(found, "Media/sermon signals detected", "No sermon/media/livestream signals detected")],
     });
   }
 
-  // Contact clarity (0-15)
+  // 6) Website Quality (20) — UX + Content + Trust + Maintenance proxies
   {
-    const weight = 15;
-    const found = s.has_contact;
-    const score = found ? 15 : 2;
-    categories.push({
-      key: "contact",
-      label: "Contact clarity",
-      score,
-      weight,
-      reasons: [reason(found, "Contact signals detected (contact page/phone/email/address)", "No clear contact path detected")],
-    });
-  }
+    const weight = 20;
 
-  // Mobile UX (0-10)
-  {
-    const weight = 10;
-    const viewportFound = report.pages_checked.some((p) => p.has_viewport_meta);
-    const responsiveHint = s.has_responsive_css_hint;
-    const found = viewportFound || responsiveHint;
-    const score = found ? 9 : 2;
+    // Speed proxy: avg fetch ms
+    const speedLevel = avgFetchMs === 0 ? 5 : avgFetchMs < 1200 ? 20 : avgFetchMs < 2500 ? 15 : avgFetchMs < 4000 ? 10 : 5;
+
+    const viewportFound = pages.some((p: any) => p.has_viewport_meta);
+    const mobileLevel = viewportFound && s.has_responsive_css_hint ? 20 : viewportFound ? 15 : 5;
+
+    const contentLevel = avgTextLen > 2500 ? 20 : avgTextLen > 1400 ? 15 : avgTextLen > 700 ? 10 : 5;
+
+    const a11yLevel = avgAltRatio > 0.7 ? 15 : avgAltRatio > 0.3 ? 10 : 5;
+
+    const maintenancePenalty = Math.min(10, (s.broken_nav_links.length || 0) * 3);
+
+    // Combine levels (cap to 20)
+    const combined = clamp(Math.round((speedLevel + mobileLevel + contentLevel + a11yLevel) / 4) - Math.round(maintenancePenalty / 4), 0, 20);
+
     categories.push({
-      key: "mobile",
-      label: "Mobile UX",
-      score,
+      key: "website_quality",
+      label: "Website Quality",
+      score: combined,
       weight,
       reasons: [
-        reason(viewportFound, "Viewport meta detected", "Missing viewport meta"),
-        reason(responsiveHint, "Responsive CSS/media-query hint detected", "No responsive hint detected"),
+        `Speed proxy: avg fetch ~${avgFetchMs}ms`,
+        viewportFound ? "Mobile: viewport meta detected" : "Mobile: viewport meta missing",
+        `Content depth proxy: avg text ~${avgTextLen} chars`,
+        `Accessibility proxy: alt coverage ~${Math.round(avgAltRatio * 100)}%`,
+        s.broken_nav_links.length ? `Maintenance: ${s.broken_nav_links.length} broken nav links sampled` : "Maintenance: no broken nav links detected",
       ],
     });
   }
 
-  // Broken links / Trust (0-10)
-  {
-    const weight = 10;
-    const brokenNav = s.broken_nav_links.length;
-    const score = clamp(10 - brokenNav * 3, 0, 10);
-    categories.push({
-      key: "broken_links",
-      label: "Broken links / Trust",
-      score,
-      weight,
-      reasons: [brokenNav ? `${brokenNav} nav links returned 4xx/5xx` : "No broken nav links detected in sample"],
-    });
-  }
-
-  const total = categories.reduce((sum, c) => sum + c.score, 0);
-  const ekklesiaScore = clamp(Math.round(total), 0, 100);
+  const raw_total = categories.reduce((sum, c) => sum + c.score, 0); // 0–120
+  let ekklesiaScore = clamp(Math.round((raw_total / 120) * 100), 0, 100);
 
   const strengths: string[] = [];
   const red_flags: string[] = [];
   const priority_actions: string[] = [];
+  const caps_applied: string[] = [];
 
   const catMap: Record<string, CategoryScore> = Object.fromEntries(categories.map((c) => [c.key, c]));
 
-  if (catMap.mission_clarity.score >= 15) strengths.push("Clear mission/identity signals on public pages");
+  if (catMap.mission_identity.score >= 15) strengths.push("Clear mission/identity signals on public pages");
   else priority_actions.push("Add a clear mission statement + ‘Who we are’ summary above the fold");
 
-  if (catMap.events.score >= 10) strengths.push("Events/Calendar signals present");
+  if (catMap.events_freshness.score >= 12) strengths.push("Events/Calendar signals present");
   else {
     red_flags.push("No events/calendar signals detected");
-    priority_actions.push("Add an Events/Calendar page and keep it updated weekly");
+    priority_actions.push("Add an Events/Calendar page and keep it updated monthly");
   }
 
-  if (catMap.giving.score >= 12) strengths.push("Giving/donation path detected");
+  if (catMap.giving_support.score >= 15) strengths.push("Giving/donation path detected");
   else {
     red_flags.push("No online giving link detected");
     priority_actions.push("Add a Give/Donate link in main navigation (with a trusted provider)");
   }
 
-  if (catMap.media.score >= 10) strengths.push("Sermon/media signals detected");
+  if (catMap.media_sermons.score >= 12) strengths.push("Sermon/media signals detected");
   else {
     red_flags.push("No sermon/media/livestream signals detected");
-    priority_actions.push("Add Sermons/Messages page and embed recent content (YouTube is fine)");
+    priority_actions.push("Add a Sermons/Messages page and link it from the main navigation");
   }
 
-  if (catMap.contact.score >= 12) strengths.push("Contact path detected");
+  if (catMap.contact_visitability.score >= 12) strengths.push("Contact/visit path detected");
   else {
     red_flags.push("No clear contact path detected");
-    priority_actions.push("Add a Contact page with phone/email/address + simple form");
+    priority_actions.push("Add a Contact page with service times, address, phone/email, and a simple contact form");
   }
 
-  if (catMap.mobile.score < 6) {
-    red_flags.push("Weak mobile UX signals (viewport/responsive hints missing)");
-    priority_actions.push("Ensure responsive mobile layout + add viewport meta + test on phone");
+  if (catMap.website_quality.score < 10) {
+    red_flags.push("Website quality signals are weak (speed/mobile/content/trust)");
+    priority_actions.push("Improve site usability: speed, mobile layout, content depth, and accessibility basics");
   }
 
-  if (catMap.broken_links.score < 7) {
-    red_flags.push("Broken navigation links detected");
-    priority_actions.push("Fix top navigation links returning 404/500");
+  // Caps / confidence rules
+  const lowConfidence = pageCount < 3;
+  if (lowConfidence) {
+    ekklesiaScore = Math.min(ekklesiaScore, 60);
+    caps_applied.push("<3 pages checked → score capped at 60");
+  }
+  if (!httpsYes) {
+    ekklesiaScore = Math.min(ekklesiaScore, 65);
+    caps_applied.push("No HTTPS detected → score capped at 65");
+  }
+  if (catMap.contact_visitability.score < 8) {
+    ekklesiaScore = Math.min(ekklesiaScore, 65);
+    caps_applied.push("No Contact/Visitability → score capped at 65");
+  }
+  const brokenRate = report.signals.broken_nav_links.length / Math.max(1, 8);
+  if (brokenRate > 0.1) {
+    ekklesiaScore = Math.min(ekklesiaScore, 70);
+    caps_applied.push("Broken nav links >10% sample → score capped at 70");
+  }
+  if (caps_applied.length) {
+    red_flags.push("Confidence caps applied due to quality/trust signals");
   }
 
   const top_wins = strengths.slice(0, 3);
@@ -259,8 +302,18 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
     },
   ].slice(0, 8);
 
+  const website_quality_check: WebsiteQualityCheck = {
+    speed: avgFetchMs < 2500 ? "pass" : avgFetchMs < 4000 ? "weak" : "fail",
+    mobile: pages.some((p: any) => p.has_viewport_meta) ? "pass" : "fail",
+    content_depth: avgTextLen > 1400 ? "pass" : avgTextLen > 700 ? "weak" : "fail",
+    https: httpsYes ? "yes" : "no",
+    navigation: report.signals.broken_nav_links.length === 0 ? "good" : report.signals.broken_nav_links.length <= 1 ? "fair" : "poor",
+    maintenance: report.signals.broken_nav_links.length <= 1 ? "up_to_date" : "stale",
+  };
+
   return {
     ekklesiaScore,
+    raw_total,
     grade: gradeFor(ekklesiaScore),
     strengths: strengths.slice(0, 8),
     red_flags: red_flags.slice(0, 8),
@@ -271,5 +324,7 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
     category_scores: catMap,
     evidence: report.evidence,
     pages_checked: report.pages_checked.map((p) => ({ url: p.final_url, status: p.status, title: p.title })),
+    website_quality_check,
+    caps_applied,
   };
 }

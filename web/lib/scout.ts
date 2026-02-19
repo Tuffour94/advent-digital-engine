@@ -19,14 +19,21 @@ export type ScoutPage = {
   url: string;
   final_url: string;
   status: number;
+  fetch_ms: number;
+  html_length: number;
+  text_length: number;
   title: string | null;
   meta_description: string | null;
   h1: string | null;
+  h2_count: number;
+  img_count: number;
+  img_alt_count: number;
   has_viewport_meta: boolean;
   nav_links: string[];
   link_count: number;
   broken_link_hint_count: number;
   text_excerpt: string | null;
+  has_https: boolean;
 };
 
 export type ScoutReport = {
@@ -127,11 +134,18 @@ function detectOnPage(pageUrl: string, html: string) {
 
   const excerpt = safeText(textBlob.slice(0, 600));
 
+  const h2_count = $("h2").length;
+  const img_count = $("img").length;
+  const img_alt_count = $("img[alt]").filter((_i, el) => String($(el).attr("alt") || "").trim().length > 0).length;
+
   return {
     $,
     title,
     meta_description,
     h1,
+    h2_count,
+    img_count,
+    img_alt_count,
     has_viewport_meta,
     nav_links: uniq(navLinks).slice(0, 50),
     link_count: uniq(allLinks).length,
@@ -144,6 +158,7 @@ function detectOnPage(pageUrl: string, html: string) {
 }
 
 async function fetchHtml(url: string) {
+  const t0 = Date.now();
   const resp = await fetch(url, {
     redirect: "follow",
     headers: {
@@ -152,7 +167,8 @@ async function fetchHtml(url: string) {
     },
   });
   const html = await resp.text();
-  return { status: resp.status, final_url: resp.url || url, html };
+  const fetch_ms = Date.now() - t0;
+  return { status: resp.status, final_url: resp.url || url, html, fetch_ms };
 }
 
 async function headOrGet(url: string) {
@@ -209,18 +225,33 @@ export async function scoutWebsiteV2(inputs: ScoutInputs): Promise<ScoutReport> 
   for (const u of toFetch) {
     const r = await fetchHtml(u);
     const d = detectOnPage(r.final_url, r.html);
+    const has_https = (() => {
+      try {
+        return new URL(r.final_url).protocol === "https:";
+      } catch {
+        return false;
+      }
+    })();
+
     pages.push({
       url: u,
       final_url: r.final_url,
       status: r.status,
+      fetch_ms: r.fetch_ms,
+      html_length: r.html.length,
+      text_length: d.textBlob.length,
       title: d.title,
       meta_description: d.meta_description,
       h1: d.h1,
+      h2_count: d.h2_count,
+      img_count: d.img_count,
+      img_alt_count: d.img_alt_count,
       has_viewport_meta: d.has_viewport_meta,
       nav_links: d.nav_links,
       link_count: d.link_count,
       broken_link_hint_count: d.broken_link_hint_count,
       text_excerpt: d.text_excerpt,
+      has_https,
     });
 
     // Evidence checks per page (patterns + snippets)
