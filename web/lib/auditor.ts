@@ -1,4 +1,5 @@
 import type { ScoutReport, EvidenceItem } from "@/lib/scout";
+import { computeConfidence, evidenceUrls, findEvidence, hasEvidence, type CapRule, type PenaltyRule } from "@/lib/enforcement";
 
 export type CategoryScore = {
   key: string;
@@ -33,6 +34,7 @@ export type WebsiteQualityCheck = {
 export type AuditorScoreV2 = {
   ekklesiaScore: number; // normalized 0–100
   raw_total: number; // 0–120
+  penalties_total: number;
   grade: string;
   strengths: string[];
   red_flags: string[];
@@ -44,7 +46,17 @@ export type AuditorScoreV2 = {
   evidence: EvidenceItem[];
   pages_checked: Array<{ url: string; status: number; title: string | null }>;
   website_quality_check: WebsiteQualityCheck;
-  caps_applied: string[];
+
+  enforcement: {
+    caps: CapRule[];
+    penalties: PenaltyRule[];
+    flags: {
+      needs_deeper_crawl: boolean;
+      low_confidence_score: boolean;
+      missing_coverage_ratio: number;
+    };
+    a_grade_allowed: boolean;
+  };
 };
 
 function clamp(n: number, lo: number, hi: number) {
@@ -207,7 +219,10 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   const strengths: string[] = [];
   const red_flags: string[] = [];
   const priority_actions: string[] = [];
-  const caps_applied: string[] = [];
+
+  const caps: CapRule[] = [];
+  const penalties: PenaltyRule[] = [];
+  const flags = computeConfidence(report);
 
   const catMap: Record<string, CategoryScore> = Object.fromEntries(categories.map((c) => [c.key, c]));
 
@@ -247,23 +262,47 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   const lowConfidence = pageCount < 3;
   if (lowConfidence) {
     ekklesiaScore = Math.min(ekklesiaScore, 60);
-    caps_applied.push("<3 pages checked → score capped at 60");
+    caps.push({
+      rule_id: "CAP_LOW_PAGES",
+      cap_max: 60,
+      title: "<3 pages checked",
+      evidence_check_ids: [],
+      evidence_urls: report.pages_checked.map((p: any) => p.final_url).slice(0, 3),
+    });
   }
   if (!httpsYes) {
     ekklesiaScore = Math.min(ekklesiaScore, 65);
-    caps_applied.push("No HTTPS detected → score capped at 65");
+    caps.push({
+      rule_id: "CAP_NO_HTTPS",
+      cap_max: 65,
+      title: "No HTTPS detected",
+      evidence_check_ids: [],
+      evidence_urls: report.pages_checked.map((p: any) => p.final_url).slice(0, 3),
+    });
   }
   if (catMap.contact_visitability.score < 8) {
     ekklesiaScore = Math.min(ekklesiaScore, 65);
-    caps_applied.push("No Contact/Visitability → score capped at 65");
+    caps.push({
+      rule_id: "CAP_NO_CONTACT",
+      cap_max: 65,
+      title: "No Contact/Visitability",
+      evidence_check_ids: ["contact.keyword", "page.contact"],
+      evidence_urls: evidenceUrls(findEvidence(report, "page.contact")).slice(0, 3),
+    });
   }
   const brokenRate = report.signals.broken_nav_links.length / Math.max(1, 8);
   if (brokenRate > 0.1) {
     ekklesiaScore = Math.min(ekklesiaScore, 70);
-    caps_applied.push("Broken nav links >10% sample → score capped at 70");
+    caps.push({
+      rule_id: "CAP_BROKEN_NAV_10P",
+      cap_max: 70,
+      title: "Broken nav links >10% sample",
+      evidence_check_ids: [],
+      evidence_urls: report.signals.broken_nav_links.map((x: any) => x.url).slice(0, 8),
+    });
   }
-  if (caps_applied.length) {
-    red_flags.push("Confidence caps applied due to quality/trust signals");
+  if (caps.length) {
+    red_flags.push("Enforcement caps applied due to quality/trust signals");
   }
 
   const top_wins = strengths.slice(0, 3);
@@ -302,6 +341,8 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
     },
   ].slice(0, 8);
 
+  const penalties_total = penalties.reduce((sum, p) => sum + p.points, 0);
+
   const website_quality_check: WebsiteQualityCheck = {
     speed: avgFetchMs < 2500 ? "pass" : avgFetchMs < 4000 ? "weak" : "fail",
     mobile: pages.some((p: any) => p.has_viewport_meta) ? "pass" : "fail",
@@ -314,6 +355,7 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   return {
     ekklesiaScore,
     raw_total,
+    penalties_total,
     grade: gradeFor(ekklesiaScore),
     strengths: strengths.slice(0, 8),
     red_flags: red_flags.slice(0, 8),
@@ -325,6 +367,11 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
     evidence: report.evidence,
     pages_checked: report.pages_checked.map((p) => ({ url: p.final_url, status: p.status, title: p.title })),
     website_quality_check,
-    caps_applied,
+    enforcement: {
+      caps,
+      penalties,
+      flags,
+      a_grade_allowed: true,
+    },
   };
 }

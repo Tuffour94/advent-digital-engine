@@ -250,7 +250,7 @@ async function getStatus(url: string) {
   }
 }
 
-export async function scoutWebsiteV2(inputs: ScoutInputs): Promise<ScoutReport> {
+export async function scoutWebsiteV2(inputs: ScoutInputs, opts?: { maxPages?: number }): Promise<ScoutReport> {
   const startUrl = inputs.website_url;
   const fetched_at = new Date().toISOString();
 
@@ -281,7 +281,8 @@ export async function scoutWebsiteV2(inputs: ScoutInputs): Promise<ScoutReport> 
   const nav = homeDetected.nav_links.filter((u) => sameOrigin(u, origin));
   const prioritizedNav = nav.filter((u) => /(about|belief|contact|give|donat|event|calendar|watch|sermon|message|live)/i.test(u));
 
-  const toFetch = uniq([homepage.final_url, ...prioritizedNav, ...candidates]).filter((u) => sameOrigin(u, origin)).slice(0, 6);
+  const maxPages = opts?.maxPages ?? 6;
+  const toFetch = uniq([homepage.final_url, ...prioritizedNav, ...candidates]).filter((u) => sameOrigin(u, origin)).slice(0, maxPages);
 
   const pages: ScoutPage[] = [];
   const evidence: EvidenceItem[] = [];

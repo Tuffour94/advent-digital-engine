@@ -120,11 +120,14 @@ export async function POST(req: Request) {
     }
 
     // 1) Scout (v2)
-    const scoutReport = await scoutWebsiteV2(inputs);
+    const deepSample = parseInt(String(input_hash).slice(-2), 16) % 10 === 0;
+    const crawl_target = deepSample ? 15 : 6;
+    const scoutReport = await scoutWebsiteV2(inputs, { maxPages: crawl_target });
 
     // Hard requirements for Scout artifact schema
     if (!scoutReport.pages_checked?.length) throw new Error("Scout schema invalid: pages_checked[] is empty");
     if (!scoutReport.evidence?.length) throw new Error("Scout schema invalid: evidence[] is empty");
+    (scoutReport as any)._meta_runtime = { crawl_target, deepSample };
 
     const scoutArtifact = {
       org_id,
@@ -134,6 +137,7 @@ export async function POST(req: Request) {
       version: ARTIFACT_VERSION,
       data: {
         _meta: { artifact_version: ARTIFACT_VERSION, scout_version: SCOUT_VERSION, code_commit },
+        _runtime: (scoutReport as any)._meta_runtime,
         ...scoutReport,
       },
     };
