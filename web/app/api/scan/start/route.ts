@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { scoutWebsite } from "@/lib/scout";
-import { auditorFromScout } from "@/lib/auditor";
+import { scoutWebsiteV2 } from "@/lib/scout";
+import { auditorFromScoutV2 } from "@/lib/auditor";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
   const admin = createSupabaseAdminClient();
 
-  const ARTIFACT_VERSION = 2;
+  const ARTIFACT_VERSION = 3;
   const code_commit = process.env.VERCEL_GIT_COMMIT_SHA ?? null;
 
   // Cache check: require BOTH scout.report and auditor.score (versioned)
@@ -97,8 +97,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, job: { ...job, status: "succeeded", cache_hit: true } });
     }
 
-    // 1) Scout
-    const scout = await scoutWebsite(inputs.website_url);
+    // 1) Scout (v2)
+    const scoutReport = await scoutWebsiteV2(inputs);
     const scoutArtifact = {
       org_id,
       job_id: job.id,
@@ -107,10 +107,7 @@ export async function POST(req: Request) {
       version: ARTIFACT_VERSION,
       data: {
         _meta: { artifact_version: ARTIFACT_VERSION, code_commit },
-        inputs,
-        fetched_at: new Date().toISOString(),
-        html_length: scout.html_length,
-        signals: scout.signals,
+        ...scoutReport,
       },
     };
 
@@ -120,7 +117,7 @@ export async function POST(req: Request) {
     if (scoutErr) throw new Error(`Failed to write scout.report: ${scoutErr.message}`);
 
     // 2) Auditor
-    const score = auditorFromScout(scout.signals);
+    const score = auditorFromScoutV2(scoutReport);
     const auditorArtifact = {
       org_id,
       job_id: job.id,
