@@ -9,10 +9,16 @@ export type CategoryScore = {
 };
 
 export type NextStep = {
-  title: string;
-  priority: "high" | "medium" | "low";
-  effort: "low" | "medium" | "high";
-  impact: "low" | "medium" | "high";
+  action: string;
+  where: string;
+  how: string;
+  time_estimate?: string;
+
+  // legacy (back-compat)
+  title?: string;
+  priority?: "high" | "medium" | "low";
+  effort?: "low" | "medium" | "high";
+  impact?: "low" | "medium" | "high";
 };
 
 export type AuditorScoreV2 = {
@@ -221,12 +227,37 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   const top_risks = red_flags.slice(0, 3);
 
   const recommended_next_steps: NextStep[] = [
-    { title: "Add/Improve mission statement on homepage", priority: "high", effort: "low", impact: "high" },
-    { title: "Add/Improve Events/Calendar page with upcoming dates", priority: "high", effort: "medium", impact: "high" },
-    { title: "Add online giving link in main nav", priority: "high", effort: "low", impact: "high" },
-    { title: "Publish sermons/messages and link from nav", priority: "medium", effort: "medium", impact: "high" },
-    { title: "Fix contact clarity (service times + address + contact form)", priority: "medium", effort: "medium", impact: "high" },
-  ].slice(0, 8) as NextStep[];
+    {
+      action: "Strengthen mission statement",
+      where: "Homepage (top section) + About page",
+      how: "Add a 2–3 sentence mission summary above the fold. Link to an About/Beliefs page from the main navigation.",
+      time_estimate: "~1–2 hours",
+    },
+    {
+      action: "Create/refresh Events page",
+      where: "Main navigation + /events or /calendar",
+      how: "Publish upcoming programs with dates. Update monthly so visitors can see what’s happening next.",
+      time_estimate: "~1–2 hours",
+    },
+    {
+      action: "Add an online giving link",
+      where: "Main navigation + homepage",
+      how: "Add a “Give” button linking to your giving provider (e.g., AdventistGiving/Tithe.ly/Pushpay).",
+      time_estimate: "~30 minutes",
+    },
+    {
+      action: "Improve sermon/media depth",
+      where: "Main navigation + Sermons/Messages page",
+      how: "Link to an archive (playlist/channel). Ensure the last 3–6 messages are easy to find.",
+      time_estimate: "~2–4 hours",
+    },
+    {
+      action: "Improve contact clarity",
+      where: "Footer + Contact page",
+      how: "Add service times, address, phone/email, and a simple contact form. Include a map link.",
+      time_estimate: "~1–2 hours",
+    },
+  ].slice(0, 8);
 
   return {
     ekklesiaScore,

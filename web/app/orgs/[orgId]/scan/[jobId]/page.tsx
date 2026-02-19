@@ -189,16 +189,23 @@ export default async function ScanJobPage({
 
         {nextSteps.length ? (
           <div className="mt-4 rounded-xl border border-slate-200 p-3">
-            <div className="text-xs font-semibold text-slate-700">Recommended next steps</div>
+            <div className="text-xs font-semibold text-slate-700">Recommended actions (next 7 days)</div>
             <div className="mt-2 space-y-2">
-              {nextSteps.map((ns: any, i: number) => (
-                <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">
-                  <div className="font-semibold text-slate-900">{ns.title}</div>
-                  <div className="mt-1 text-[11px] text-slate-600">
-                    priority: {ns.priority} • effort: {ns.effort} • impact: {ns.impact}
+              {nextSteps.map((ns: any, i: number) => {
+                const action = ns.action ?? ns.title;
+                const where = ns.where ?? (ns.title ? "Not available — re-run scan" : "");
+                const how = ns.how ?? (ns.title ? "Not available — re-run scan" : "");
+                const time = ns.time_estimate ?? null;
+
+                return (
+                  <div key={i} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                    <div className="font-semibold text-slate-900">✅ {action}</div>
+                    {where ? <div className="mt-2 text-slate-700"><span className="font-semibold">Where:</span> {where}</div> : null}
+                    {how ? <div className="mt-1 text-slate-700"><span className="font-semibold">How:</span> {how}</div> : null}
+                    {time ? <div className="mt-1 text-slate-600"><span className="font-semibold">Time:</span> {time}</div> : null}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : null}
