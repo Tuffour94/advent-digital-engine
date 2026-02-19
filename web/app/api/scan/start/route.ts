@@ -40,6 +40,7 @@ export async function POST(req: Request) {
   const admin = createSupabaseAdminClient();
 
   const ARTIFACT_VERSION = 2;
+  const code_commit = process.env.VERCEL_GIT_COMMIT_SHA ?? null;
 
   // Cache check: require BOTH scout.report and auditor.score (versioned)
   const { data: cachedScout } = await admin
@@ -105,6 +106,7 @@ export async function POST(req: Request) {
       input_hash,
       version: ARTIFACT_VERSION,
       data: {
+        _meta: { artifact_version: ARTIFACT_VERSION, code_commit },
         inputs,
         fetched_at: new Date().toISOString(),
         html_length: scout.html_length,
@@ -126,6 +128,7 @@ export async function POST(req: Request) {
       input_hash,
       version: ARTIFACT_VERSION,
       data: {
+        _meta: { artifact_version: ARTIFACT_VERSION, code_commit },
         ...score,
         inputs,
         computed_at: new Date().toISOString(),
