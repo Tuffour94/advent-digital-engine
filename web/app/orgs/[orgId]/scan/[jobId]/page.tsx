@@ -204,6 +204,70 @@ export default async function ScanJobPage({
         ) : null}
       </div>
 
+      {/* Audit trail preview (above the fold) */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="text-sm font-semibold text-slate-900">Pages checked</div>
+          <div className="mt-1 text-xs text-slate-600">{pagesChecked.length} pages</div>
+          <div className="mt-4 space-y-2">
+            {pagesChecked.slice(0, 4).map((p: any, i: number) => (
+              <div key={i} className="rounded-xl border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-slate-900 truncate">{p.title ?? "(no title)"}</div>
+                  <span
+                    className={
+                      "text-[11px] font-semibold rounded-full px-2 py-0.5 border " +
+                      (p.status && p.status < 400
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                        : "bg-red-50 text-red-800 border-red-200")
+                    }
+                  >
+                    {p.status ?? "?"}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] text-slate-600 break-all">{p.url ?? p.final_url}</div>
+              </div>
+            ))}
+            {!pagesChecked.length ? <div className="text-sm text-slate-600">No pages_checked found.</div> : null}
+          </div>
+          <div className="no-print mt-4">
+            <a href="#pages-checked" className="text-sm font-semibold text-blue-700 hover:text-blue-900">View full pages checked →</a>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="text-sm font-semibold text-slate-900">Evidence highlights</div>
+          <div className="mt-1 text-xs text-slate-600">Key detections and gaps</div>
+          <div className="mt-4 space-y-2">
+            {(evidence
+              .slice()
+              .sort((a: any, b: any) => Number(a.found) - Number(b.found))
+              .slice(0, 6) as any[]
+            ).map((e: any, i: number) => (
+              <div key={i} className="rounded-xl border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-slate-900">{e.check_id}</div>
+                  <span
+                    className={
+                      "rounded-full px-2 py-0.5 text-[11px] font-semibold border " +
+                      (e.found ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200")
+                    }
+                  >
+                    {e.found ? "Detected" : "Missing"}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] text-slate-600 break-all">{e.url}</div>
+                {e.snippet ? <div className="mt-2 text-xs text-slate-800">“{e.snippet}”</div> : null}
+              </div>
+            ))}
+            {!evidence.length ? <div className="text-sm text-slate-600">No evidence rows.</div> : null}
+          </div>
+          <div className="no-print mt-4">
+            <a href="#evidence" className="text-sm font-semibold text-blue-700 hover:text-blue-900">Open full evidence appendix →</a>
+          </div>
+        </div>
+      </div>
+
       {/* Breakdown */}
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="text-sm font-semibold text-slate-900">Category breakdown</div>
@@ -237,18 +301,22 @@ export default async function ScanJobPage({
         </div>
       </div>
 
-      {/* Pages checked */}
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="text-sm font-semibold text-slate-900">Pages checked</div>
+      {/* Full pages checked */}
+      <div id="pages-checked" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="text-sm font-semibold text-slate-900">Pages checked (full)</div>
         <div className="mt-4 space-y-2">
-          {pagesChecked.slice(0, 12).map((p: any, i: number) => (
+          {pagesChecked.slice(0, 24).map((p: any, i: number) => (
             <div key={i} className="rounded-xl border border-slate-200 p-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-xs font-semibold text-slate-900 truncate">{p.title ?? "(no title)"}</div>
-                <span className={
-                  "text-[11px] font-semibold rounded-full px-2 py-0.5 border " +
-                  (p.status && p.status < 400 ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200")
-                }>
+                <span
+                  className={
+                    "text-[11px] font-semibold rounded-full px-2 py-0.5 border " +
+                    (p.status && p.status < 400
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : "bg-red-50 text-red-800 border-red-200")
+                  }
+                >
                   {p.status ?? "?"}
                 </span>
               </div>

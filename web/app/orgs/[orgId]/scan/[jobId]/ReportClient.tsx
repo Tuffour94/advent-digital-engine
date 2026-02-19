@@ -45,7 +45,7 @@ export default function ReportClient({
         </button>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+      <div id="evidence" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm font-semibold text-slate-900">Evidence</div>
           <div className="no-print flex flex-wrap gap-2">
