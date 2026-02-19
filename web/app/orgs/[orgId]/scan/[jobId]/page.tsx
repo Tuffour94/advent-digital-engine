@@ -34,7 +34,15 @@ export default async function ScanJobPage({
     .eq("id", jobId)
     .maybeSingle();
 
-  const { data: artifact } = await supabase
+  function sha256(input: string) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("crypto").createHash("sha256").update(input).digest("hex");
+  }
+
+  const inputHash = job?.inputs ? sha256(JSON.stringify(job.inputs)) : null;
+
+  // Prefer artifact linked to this job_id, but fall back to cache by input_hash (older jobs / cache hits).
+  const { data: artifactByJob } = await supabase
     .from("scan_artifacts")
     .select("id,artifact_type,data,created_at,input_hash,version")
     .eq("org_id", orgId)
@@ -43,6 +51,20 @@ export default async function ScanJobPage({
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  const { data: artifactByHash } = inputHash
+    ? await supabase
+        .from("scan_artifacts")
+        .select("id,artifact_type,data,created_at,input_hash,version")
+        .eq("org_id", orgId)
+        .eq("artifact_type", "auditor.score")
+        .eq("input_hash", inputHash)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : ({ data: null } as any);
+
+  const artifact = artifactByJob ?? artifactByHash;
 
   const a = artifact?.data ?? null;
   const redFlags = (a?.redFlags ?? a?.red_flags ?? []) as any[];

@@ -14,13 +14,20 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
 
   const { data: jobs } = await supabase
     .from("scan_jobs")
-    .select("id,status,cache_hit,used_ai,actual_token_cost,created_at,error")
+    .select("id,status,inputs,cache_hit,used_ai,actual_token_cost,created_at,error")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false })
     .limit(20);
 
+  function sha256(input: string) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("crypto").createHash("sha256").update(input).digest("hex");
+  }
+
   const latestJob = (jobs ?? [])[0];
-  const { data: latestArtifact } = latestJob?.id
+  const latestHash = latestJob?.inputs ? sha256(JSON.stringify(latestJob.inputs)) : null;
+
+  const { data: latestByJob } = latestJob?.id
     ? await supabase
         .from("scan_artifacts")
         .select("id,artifact_type,data,created_at,version")
@@ -31,6 +38,20 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
         .limit(1)
         .maybeSingle()
     : ({ data: null } as any);
+
+  const { data: latestByHash } = latestHash
+    ? await supabase
+        .from("scan_artifacts")
+        .select("id,artifact_type,data,created_at,version")
+        .eq("org_id", orgId)
+        .eq("artifact_type", "auditor.score")
+        .eq("input_hash", latestHash)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : ({ data: null } as any);
+
+  const latestArtifact = latestByJob ?? latestByHash;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
