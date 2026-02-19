@@ -13,10 +13,7 @@ function gradeColor(grade: string) {
   return "bg-red-600";
 }
 
-function sha256(input: string) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require("crypto").createHash("sha256").update(input).digest("hex");
-}
+import { scanInputHash, normalizeInputs } from "@/lib/scanKey";
 
 export default async function ScanJobPage({
   params,
@@ -36,7 +33,15 @@ export default async function ScanJobPage({
     .eq("id", jobId)
     .maybeSingle();
 
-  const inputHash = job?.inputs ? sha256(JSON.stringify(job.inputs)) : null;
+  const inputHash = job?.inputs
+    ? scanInputHash(
+        normalizeInputs({
+          website_url: (job.inputs as any).website_url,
+          youtube_url: (job.inputs as any).youtube_url,
+          facebook_url: (job.inputs as any).facebook_url,
+        })
+      )
+    : null;
 
   const { data: auditor } = inputHash
     ? await supabase

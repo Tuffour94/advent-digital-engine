@@ -19,13 +19,18 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
     .order("created_at", { ascending: false })
     .limit(20);
 
-  function sha256(input: string) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("crypto").createHash("sha256").update(input).digest("hex");
-  }
+  const { scanInputHash, normalizeInputs } = await import("@/lib/scanKey");
 
   const latestJob = (jobs ?? [])[0];
-  const latestHash = latestJob?.inputs ? sha256(JSON.stringify(latestJob.inputs)) : null;
+  const latestHash = latestJob?.inputs
+    ? scanInputHash(
+        normalizeInputs({
+          website_url: (latestJob.inputs as any).website_url,
+          youtube_url: (latestJob.inputs as any).youtube_url,
+          facebook_url: (latestJob.inputs as any).facebook_url,
+        })
+      )
+    : null;
 
   const { data: latestArtifact } = latestHash
     ? await supabase
