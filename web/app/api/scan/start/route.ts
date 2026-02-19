@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { scoutWebsite } from "@/lib/scout";
+import { auditorFromScout } from "@/lib/auditor";
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +39,17 @@ export async function POST(req: Request) {
 
   const admin = createSupabaseAdminClient();
 
-  // Cache check
-  const { data: cached } = await admin
+  // Cache check: require BOTH scout.report and auditor.score.
+  const { data: cachedScout } = await admin
+    .from("scan_artifacts")
+    .select("id")
+    .eq("org_id", org_id)
+    .eq("artifact_type", "scout.report")
+    .eq("input_hash", input_hash)
+    .limit(1)
+    .maybeSingle();
+
+  const { data: cachedAuditor } = await admin
     .from("scan_artifacts")
     .select("id")
     .eq("org_id", org_id)
@@ -47,20 +58,22 @@ export async function POST(req: Request) {
     .limit(1)
     .maybeSingle();
 
-  const cache_hit = Boolean(cached?.id);
+  const cache_hit = Boolean(cachedScout?.id && cachedAuditor?.id);
 
+  // Create job in running state.
   const { data: job, error: jobErr } = await admin
     .from("scan_jobs")
     .insert({
       org_id,
       requested_by: user.id,
-      status: cache_hit ? "succeeded" : "queued",
+      status: "running",
       inputs,
       cache_hit,
       used_ai: false,
       estimated_token_cost: 0,
       actual_token_cost: 0,
-      filter_stage: cache_hit ? "cache" : "queue",
+      filter_stage: cache_hit ? "cache" : "scout",
+      started_at: new Date().toISOString(),
     })
     .select("id,status,cache_hit,used_ai,actual_token_cost,created_at")
     .maybeSingle();
@@ -68,27 +81,82 @@ export async function POST(req: Request) {
   if (jobErr) return NextResponse.json({ error: jobErr.message }, { status: 400 });
   if (!job?.id) return NextResponse.json({ error: "Job insert returned no id" }, { status: 500 });
 
-  // Stub artifacts if not cache-hit (Phase 1 scaffold)
-  if (!cache_hit) {
-    await admin.from("scan_artifacts").insert({
-      org_id,
-      job_id: job.id,
-      artifact_type: "auditor.score",
-      input_hash,
-      version: 1,
-      data: {
-        ekklesiaScore: 0,
-        grade: "F",
-        note: "Worker not implemented yet (scaffold).",
-        inputs,
-      },
-    });
+  try {
+    if (!cache_hit) {
+      // 1) Scout
+      const scout = await scoutWebsite(inputs.website_url);
+      const scoutArtifact = {
+        org_id,
+        job_id: job.id,
+        artifact_type: "scout.report",
+        input_hash,
+        version: 1,
+        data: {
+          inputs,
+          fetched_at: new Date().toISOString(),
+          html_length: scout.html_length,
+          signals: scout.signals,
+        },
+      };
+
+      const { error: scoutErr } = await admin.from("scan_artifacts").insert(scoutArtifact);
+      if (scoutErr) throw new Error(`Failed to write scout.report: ${scoutErr.message}`);
+
+      // 2) Auditor
+      const score = auditorFromScout(scout.signals);
+      const auditorArtifact = {
+        org_id,
+        job_id: job.id,
+        artifact_type: "auditor.score",
+        input_hash,
+        version: 1,
+        data: {
+          ...score,
+          inputs,
+          computed_at: new Date().toISOString(),
+        },
+      };
+
+      const { error: auditorErr } = await admin.from("scan_artifacts").insert(auditorArtifact);
+      if (auditorErr) throw new Error(`Failed to write auditor.score: ${auditorErr.message}`);
+    }
+
+    // Integrity check: verify both artifacts exist (job_id or cache hash)
+    const { data: scoutOk } = await admin
+      .from("scan_artifacts")
+      .select("id")
+      .eq("org_id", org_id)
+      .eq("artifact_type", "scout.report")
+      .eq("input_hash", input_hash)
+      .limit(1)
+      .maybeSingle();
+
+    const { data: auditorOk } = await admin
+      .from("scan_artifacts")
+      .select("id")
+      .eq("org_id", org_id)
+      .eq("artifact_type", "auditor.score")
+      .eq("input_hash", input_hash)
+      .limit(1)
+      .maybeSingle();
+
+    if (!scoutOk?.id || !auditorOk?.id) {
+      throw new Error("Integrity failure: missing scout.report or auditor.score");
+    }
 
     await admin
       .from("scan_jobs")
-      .update({ status: "succeeded", filter_stage: "stub", finished_at: new Date().toISOString() })
+      .update({ status: "succeeded", filter_stage: cache_hit ? "cache" : "auditor", finished_at: new Date().toISOString() })
       .eq("id", job.id);
-  }
 
-  return NextResponse.json({ ok: true, job });
+    return NextResponse.json({ ok: true, job: { ...job, status: "succeeded", cache_hit } });
+  } catch (e: any) {
+    const message = e?.message ?? "Scan failed";
+    await admin
+      .from("scan_jobs")
+      .update({ status: "failed", error: message, finished_at: new Date().toISOString() })
+      .eq("id", job.id);
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
