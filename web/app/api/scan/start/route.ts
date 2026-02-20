@@ -123,6 +123,8 @@ export async function POST(req: Request) {
     const deepSample = parseInt(String(input_hash).slice(-2), 16) % 10 === 0;
     const crawl_target = deepSample ? 15 : 6;
     const scoutReport = await scoutWebsiteV2(inputs, { maxPages: crawl_target });
+    // Ensure confidence formulas can use the intended target pages.
+    (scoutReport as any).signals.crawl_target_pages = crawl_target;
 
     // Hard requirements for Scout artifact schema
     if (!scoutReport.pages_checked?.length) throw new Error("Scout schema invalid: pages_checked[] is empty");

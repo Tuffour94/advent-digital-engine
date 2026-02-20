@@ -44,6 +44,15 @@ export type ScoutReport = {
   signals: {
     domain: string;
 
+    // crawl metrics (for confidence)
+    crawl_target_pages: number;
+    attempted_fetches: number;
+    successful_fetches: number;
+    same_origin_pages: number;
+
+    // render visibility
+    render_required: boolean;
+
     // presence
     has_livestream: boolean;
     has_events: boolean;
@@ -59,11 +68,13 @@ export type ScoutReport = {
     has_physical_address: boolean;
     sitemap_status: number | null;
     has_sitemap: boolean;
+    sitemap_parsed_url_count: number;
     has_homepage_cta: boolean;
     events_recent_90d: boolean;
     sermons_recent_6mo: boolean;
     copyright_fresh: boolean;
 
+    nav_sample_checked: number;
     broken_nav_links: { url: string; status: number | null }[];
   };
 };
@@ -380,9 +391,22 @@ export async function scoutWebsiteV2(inputs: ScoutInputs, opts?: { maxPages?: nu
     if (/\/(sermons|messages|watch|live)/i.test(urlLower)) evidence.push({ check_id: "page.media", url: r.final_url, status: r.status, found: true });
   }
 
-  // Sitemap check
+  // Sitemap check (status + parseable url count sample)
   const sitemapUrl = origin.replace(/\/$/, "") + "/sitemap.xml";
-  const sitemap_status = await getStatus(sitemapUrl);
+  let sitemap_status = await getStatus(sitemapUrl);
+  let sitemap_parsed_url_count = 0;
+  if (sitemap_status && sitemap_status < 400) {
+    try {
+      const resp = await fetch(sitemapUrl, { method: "GET" });
+      sitemap_status = resp.status;
+      const xml = await resp.text().catch(() => "");
+      // very light deterministic parse: count <loc> tags
+      const locs = xml.match(/<loc>[^<]+<\/loc>/gi) ?? [];
+      sitemap_parsed_url_count = Math.min(locs.length, 5000);
+    } catch {
+      // ignore
+    }
+  }
   const has_sitemap = Boolean(sitemap_status && sitemap_status < 400);
   evidence.push({
     check_id: "trust.sitemap",
@@ -390,15 +414,26 @@ export async function scoutWebsiteV2(inputs: ScoutInputs, opts?: { maxPages?: nu
     status: sitemap_status,
     found: has_sitemap,
     snippet: has_sitemap ? `sitemap.xml returned ${sitemap_status}` : `sitemap.xml missing (${sitemap_status ?? "no response"})`,
+    details: { parsed_url_count: sitemap_parsed_url_count },
   });
 
   // Nav broken link sampling from homepage nav links
   const sampleNav = uniq(homeDetected.nav_links).filter((u) => sameOrigin(u, origin)).slice(0, 8);
   const broken_nav_links: { url: string; status: number | null }[] = [];
+  const nav_checked: Array<{ url: string; status: number | null }> = [];
   for (const u of sampleNav) {
     const st = await headOrGet(u);
+    nav_checked.push({ url: u, status: st ?? null });
     if (st && st >= 400) broken_nav_links.push({ url: u, status: st });
   }
+  evidence.push({
+    check_id: "maintenance.broken_nav_sample",
+    url: homepage.final_url,
+    status: homepage.status,
+    found: true,
+    snippet: `Checked ${nav_checked.length} nav links; failures: ${broken_nav_links.length}`,
+    details: { checked: nav_checked, failures: broken_nav_links },
+  });
 
   // Aggregate signals across evidence
   const has = (id: string) => evidence.some((e) => e.check_id === id && e.found);
@@ -425,6 +460,15 @@ export async function scoutWebsiteV2(inputs: ScoutInputs, opts?: { maxPages?: nu
     snippet: has_physical_address ? findSnippet(combinedText, /\b\d{1,6}\s+.*\b(St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Way|Ct|Court)\b/i) : null,
   });
 
+  const mapLinkFound = /(google\.com\/maps|apple\.com\/maps|\/maps\b|\bdirections\b)/i.test(combinedText);
+  evidence.push({
+    check_id: "trust.map_directions",
+    url: homepage.final_url,
+    status: homepage.status,
+    found: mapLinkFound,
+    snippet: mapLinkFound ? findSnippet(combinedText, /(google\.com\/maps|apple\.com\/maps|directions)/i) : null,
+  });
+
   const has_homepage_cta = /(plan\s+a\s+visit|visit\s+us|i'?m\s+new|new\s+here|watch\s+live|join\s+us|get\s+involved|contact\s+us|give\s+now)/i.test(pages[0]?.text_excerpt ?? "");
   evidence.push({
     check_id: "ux.homepage_cta",
@@ -434,31 +478,44 @@ export async function scoutWebsiteV2(inputs: ScoutInputs, opts?: { maxPages?: nu
     snippet: has_homepage_cta ? findSnippet(pages[0]?.text_excerpt ?? "", /(plan\s+a\s+visit|new\s+here|watch\s+live|join\s+us|give\s+now)/i) : null,
   });
 
+  const hasViewport = Boolean(pages[0]?.has_viewport_meta);
+  evidence.push({
+    check_id: "mobile.viewport",
+    url: homepage.final_url,
+    status: homepage.status,
+    found: hasViewport,
+    snippet: hasViewport ? "meta viewport detected" : "meta viewport missing",
+  });
+
   // Recency checks (best-effort on combined text)
   const { date: eventDate, raw: eventRaw } = parseBestDate(combinedText);
   const now = new Date();
   const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
   const events_recent_90d = Boolean(eventDate && Math.abs(now.getTime() - eventDate.getTime()) <= ninetyDaysMs);
+  const eventsDays = eventDate ? Math.round(Math.abs(now.getTime() - eventDate.getTime()) / (24 * 60 * 60 * 1000)) : null;
+  const noUpcomingEventsStatement = /no\s+upcoming\s+events|no\s+events\s+scheduled|check\s+back\s+soon\s+for\s+events/i.test(combinedText);
   evidence.push({
     check_id: "freshness.events_90d",
     url: homepage.final_url,
     status: homepage.status,
     found: events_recent_90d,
-    snippet: eventRaw ? `Best date found: ${eventRaw}` : null,
-    details: { best_date: eventRaw },
+    snippet: eventRaw ? `Best date found: ${eventRaw}` : noUpcomingEventsStatement ? "Explicit statement: no upcoming events" : null,
+    details: { best_date: eventRaw, best_date_iso: eventDate ? eventDate.toISOString() : null, days_since: eventsDays, explicit_none: noUpcomingEventsStatement },
   });
 
   const sixMonthsMs = 183 * 24 * 60 * 60 * 1000;
   const sermons_recent_6mo = Boolean(
     eventDate && Math.abs(now.getTime() - eventDate.getTime()) <= sixMonthsMs && (has("media.youtube_embed") || has("page.media") || has("media.keyword"))
   );
+  const sermonsDays = eventDate ? Math.round(Math.abs(now.getTime() - eventDate.getTime()) / (24 * 60 * 60 * 1000)) : null;
+  const noArchiveStatement = /no\s+sermons|no\s+messages|no\s+archive|sermons\s+coming\s+soon/i.test(combinedText);
   evidence.push({
     check_id: "freshness.sermons_6mo",
     url: homepage.final_url,
     status: homepage.status,
     found: sermons_recent_6mo,
-    snippet: eventRaw ? `Best date found: ${eventRaw}` : null,
-    details: { best_date: eventRaw },
+    snippet: eventRaw ? `Best date found: ${eventRaw}` : noArchiveStatement ? "Explicit statement: no archive" : null,
+    details: { best_date: eventRaw, best_date_iso: eventDate ? eventDate.toISOString() : null, days_since: sermonsDays, explicit_none: noArchiveStatement },
   });
 
   // Copyright freshness
@@ -472,6 +529,21 @@ export async function scoutWebsiteV2(inputs: ScoutInputs, opts?: { maxPages?: nu
     snippet: copyright_fresh ? findSnippet(combinedText, /(©|copyright)\s*\d{4}/i) : null,
   });
 
+  // Crawl metrics (for confidence)
+  const crawl_target_pages = pages.length;
+  const attempted_fetches = toFetch.length;
+  const successful_fetches = pages.filter((p) => (p.status ?? 0) > 0 && p.status < 400).length;
+  const same_origin_pages = pages.filter((p) => sameOrigin(p.final_url, origin)).length;
+
+  // Render visibility heuristic (free, deterministic)
+  const home = pages[0];
+  const render_required = Boolean(
+    home &&
+      home.html_length > 2000 &&
+      home.text_length < 250 &&
+      (/id=\"__next\"/i.test(home.text_excerpt ?? "") || true)
+  );
+
   const report: ScoutReport = {
     inputs,
     fetched_at,
@@ -479,6 +551,12 @@ export async function scoutWebsiteV2(inputs: ScoutInputs, opts?: { maxPages?: nu
     evidence,
     signals: {
       domain: origin,
+
+      crawl_target_pages,
+      attempted_fetches,
+      successful_fetches,
+      same_origin_pages,
+      render_required,
 
       has_livestream: has("media.keyword") || has("page.media") || has("media.youtube_embed"),
       has_events: has("events.keyword") || has("page.events"),
@@ -493,11 +571,13 @@ export async function scoutWebsiteV2(inputs: ScoutInputs, opts?: { maxPages?: nu
       has_physical_address,
       sitemap_status,
       has_sitemap,
+      sitemap_parsed_url_count,
       has_homepage_cta,
       events_recent_90d,
       sermons_recent_6mo,
       copyright_fresh,
 
+      nav_sample_checked: sampleNav.length,
       broken_nav_links,
     },
   };

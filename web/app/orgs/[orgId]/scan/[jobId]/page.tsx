@@ -72,7 +72,8 @@ export default async function ScanJobPage({
   const a: any = auditor?.data ?? null;
   const s: any = scout?.data ?? null;
 
-  const ekk = a?.ekklesiaScore ?? 0;
+  const ekk = a?.score_0_100 ?? a?.ekklesiaScore ?? 0;
+  const conf = a?.confidence_0_100 ?? null;
   const grade = a?.grade ?? "—";
   const cats = a?.category_scores ? ((Object.values(a.category_scores).filter(Boolean) as any[])) : [];
   const wins = (a?.top_wins ?? a?.strengths ?? []).slice(0, 3);
@@ -166,8 +167,9 @@ export default async function ScanJobPage({
 
         <div className="flex items-start justify-between gap-6">
           <div>
-            <div className="text-xs font-semibold tracking-wide text-slate-600">EKKLESIASCORE</div>
+            <div className="text-xs font-semibold tracking-wide text-slate-600">SCORE</div>
             <div className="mt-1 text-6xl font-semibold tracking-tight text-slate-900">{ekk}</div>
+            {typeof conf === 'number' ? <div className="mt-2 text-xs font-semibold text-slate-600">Confidence: {conf}/100</div> : null}
             <div className="mt-3 text-sm text-slate-700">{execSummary}</div>
             <div className="mt-1 text-xs font-semibold text-slate-500">{benchmarkLine}</div>
           </div>

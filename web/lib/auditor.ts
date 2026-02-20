@@ -32,10 +32,16 @@ export type WebsiteQualityCheck = {
 };
 
 export type AuditorScoreV2 = {
-  ekklesiaScore: number; // normalized 0–100
-  raw_total: number; // 0–120
+  score_0_100: number;
+  confidence_0_100: number;
+  grade_uncapped: string;
+  grade: string; // capped by confidence + A-eligibility
+  grade_cap_reason?: string | null;
+
+  // legacy/back-compat fields
+  ekklesiaScore: number;
+  raw_total: number;
   penalties_total: number;
-  grade: string;
   strengths: string[];
   red_flags: string[];
   priority_actions: string[];
@@ -434,28 +440,180 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   const bounded_penalties_total = clamp(penalties_total, -15, 0);
   ekklesiaScore = clamp(ekklesiaScore + bounded_penalties_total, 0, 100);
 
-  // Confidence dampening (small, not destructive)
-  if (flags.low_confidence_score) ekklesiaScore = Math.round(ekklesiaScore * 0.9);
+  // =============================
+  // Confidence (0–100) — STRICT
+  // =============================
+  const clamp01 = (x: number) => clamp(x, 0, 1);
 
-  // A-grade lock
-  let a_grade_allowed = true;
-  const websiteQuality = catMap.website_quality?.score ?? 0;
-  const freshness = catMap.events_freshness?.score ?? 0;
-  const contentDepth = catMap.content_depth?.score ?? 0;
-  const ux = catMap.ux_navigation?.score ?? 0;
+  const crawlTarget = Number((s as any).crawl_target_pages ?? pages.length ?? 0) || 0;
+  const pagesChecked = pages.length;
+  const pages_checked_ratio = crawlTarget ? pagesChecked / crawlTarget : 0;
+  const coverage_points_pages = clamp01(pages_checked_ratio) * 35;
 
-  if (caps.length) a_grade_allowed = false;
-  if (flags.low_confidence_score) a_grade_allowed = false;
-  if (websiteQuality < 17) a_grade_allowed = false;
-  if (freshness < 12) a_grade_allowed = false;
-  if (contentDepth < 10) a_grade_allowed = false;
-  if (ux < 10) a_grade_allowed = false;
-  if (!s.has_leadership_info || !s.has_physical_address) a_grade_allowed = false;
+  const sitemapParsed = Number((s as any).sitemap_parsed_url_count ?? 0) || 0;
+  const sitemap_bonus = s.has_sitemap ? (sitemapParsed >= 20 ? 10 : 5) : 0;
 
-  if (!a_grade_allowed && ekklesiaScore >= 85) {
-    ekklesiaScore = 84; // forbid A
-    red_flags.push("A-grade lock applied (quality/freshness/confidence requirements not met)");
+  const attempted = Number((s as any).attempted_fetches ?? 0) || 0;
+  const successful = Number((s as any).successful_fetches ?? 0) || 0;
+  const fetch_success_ratio = attempted ? successful / attempted : 0;
+  const coverage_points_fetch = clamp01(fetch_success_ratio) * 10;
+
+  const sameOriginCount = Number((s as any).same_origin_pages ?? 0) || 0;
+  const same_origin_ratio = pagesChecked ? sameOriginCount / pagesChecked : 0;
+  const coverage_points_origin = clamp01(same_origin_ratio) * 5;
+
+  const coverage_points = clamp(Math.round(coverage_points_pages + sitemap_bonus + coverage_points_fetch + coverage_points_origin), 0, 60);
+
+  type EvidenceScore = { key: string; label: string; score01: number; status: "strong" | "weak" | "unknown" | "missing"; evidence: EvidenceItem[] };
+
+  const isRenderUnknown = Boolean((s as any).render_required);
+  const items = (checkIds: string[]) => report.evidence.filter((e) => checkIds.includes(e.check_id));
+  const strongFound = (ev: EvidenceItem[]) => ev.some((e) => e.found && (e.snippet ?? "").length >= 20);
+  const anyFound = (ev: EvidenceItem[]) => ev.some((e) => e.found);
+
+  const scoreEvidence = (key: string, label: string, checkIds: string[]): EvidenceScore => {
+    const ev = items(checkIds);
+    const foundStrong = strongFound(ev);
+    const foundAny = anyFound(ev);
+
+    if (foundStrong) return { key, label, score01: 1.0, status: "strong", evidence: ev };
+    if (foundAny) return { key, label, score01: 0.6, status: "weak", evidence: ev };
+    if (isRenderUnknown) return { key, label, score01: 0.4, status: "unknown", evidence: ev };
+    return { key, label, score01: 0.0, status: "missing", evidence: ev };
+  };
+
+  // Required evidence set (E1–E12)
+  const E1 = scoreEvidence("E1", "Service times", ["service_times.keyword"]);
+  const E2 = scoreEvidence("E2", "Physical address", ["trust.physical_address"]);
+  const E3 = scoreEvidence("E3", "Map/directions link", ["trust.map_directions"]);
+  const E4 = scoreEvidence("E4", "About/mission/beliefs", ["page.about", "mission.keyword", "adventist.keyword"]);
+  const E5 = scoreEvidence("E5", "Leadership/pastor", ["trust.leadership_info"]);
+  const E6 = scoreEvidence("E6", "Events page", ["page.events", "events.keyword"]);
+
+  const evEvents = items(["freshness.events_90d"]);
+  const eventsDetails: any = evEvents.find((e) => e.details)?.details ?? {};
+  const eventsDays = typeof eventsDetails.days_since === "number" ? eventsDetails.days_since : null;
+  const eventsExplicitNone = Boolean(eventsDetails.explicit_none);
+  const E7: EvidenceScore = (() => {
+    if (typeof eventsDays === "number") {
+      if (eventsDays <= 90) return { key: "E7", label: "Events recency", score01: 1.0, status: "strong", evidence: evEvents };
+      // stale
+      return { key: "E7", label: "Events recency", score01: eventsExplicitNone ? 0.6 : 0.0, status: eventsExplicitNone ? "weak" : "missing", evidence: evEvents };
+    }
+    if (eventsExplicitNone) return { key: "E7", label: "Events recency", score01: 0.6, status: "weak", evidence: evEvents };
+    if (isRenderUnknown) return { key: "E7", label: "Events recency", score01: 0.4, status: "unknown", evidence: evEvents };
+    return { key: "E7", label: "Events recency", score01: 0.0, status: "missing", evidence: evEvents };
+  })();
+
+  const E8 = scoreEvidence("E8", "Sermons/media page", ["page.media", "media.keyword", "media.youtube_embed"]);
+
+  const evSermons = items(["freshness.sermons_6mo"]);
+  const sermonsDetails: any = evSermons.find((e) => e.details)?.details ?? {};
+  const sermonsDays = typeof sermonsDetails.days_since === "number" ? sermonsDetails.days_since : null;
+  const sermonsExplicitNone = Boolean(sermonsDetails.explicit_none);
+  const E9: EvidenceScore = (() => {
+    if (typeof sermonsDays === "number") {
+      if (sermonsDays <= 183) return { key: "E9", label: "Sermons recency", score01: 1.0, status: "strong", evidence: evSermons };
+      return { key: "E9", label: "Sermons recency", score01: sermonsExplicitNone ? 0.6 : 0.0, status: sermonsExplicitNone ? "weak" : "missing", evidence: evSermons };
+    }
+    if (sermonsExplicitNone) return { key: "E9", label: "Sermons recency", score01: 0.6, status: "weak", evidence: evSermons };
+    if (isRenderUnknown) return { key: "E9", label: "Sermons recency", score01: 0.4, status: "unknown", evidence: evSermons };
+    return { key: "E9", label: "Sermons recency", score01: 0.0, status: "missing", evidence: evSermons };
+  })();
+
+  const E10: EvidenceScore = httpsYes
+    ? { key: "E10", label: "HTTPS", score01: 1.0, status: "strong", evidence: [] }
+    : { key: "E10", label: "HTTPS", score01: 0.0, status: "missing", evidence: [] };
+
+  const evNav = items(["maintenance.broken_nav_sample"]);
+  const navChecked = Number((s as any).nav_sample_checked ?? 0) || 0;
+  const navFailed = (s.broken_nav_links?.length ?? 0);
+  const E11: EvidenceScore = navChecked > 0
+    ? { key: "E11", label: "Broken nav sample", score01: 1.0, status: "strong", evidence: evNav }
+    : isRenderUnknown
+      ? { key: "E11", label: "Broken nav sample", score01: 0.4, status: "unknown", evidence: evNav }
+      : { key: "E11", label: "Broken nav sample", score01: 0.0, status: "missing", evidence: evNav };
+
+  const E12 = scoreEvidence("E12", "Mobile viewport", ["mobile.viewport"]);
+
+  const REQUIRED: EvidenceScore[] = [E1,E2,E3,E4,E5,E6,E7,E8,E9,E10,E11,E12];
+  const perItem = 40 / REQUIRED.length;
+  const evidence_points = clamp(
+    Math.round(
+      REQUIRED.reduce((sum, r) => sum + r.score01 * perItem, 0)
+    ),
+    0,
+    40
+  );
+
+  const confidence_0_100 = clamp(Math.round(coverage_points + evidence_points), 0, 100);
+
+  // =============================
+  // Grade caps + A-eligibility
+  // =============================
+  const grade_uncapped = gradeFor(ekklesiaScore);
+  let grade = grade_uncapped;
+  let grade_cap_reason: string | null = null;
+
+  const capTo = (max: "C" | "B") => {
+    if (max === "C") {
+      if (/^A/.test(grade) || /^B/.test(grade)) grade = "C";
+    } else {
+      if (/^A/.test(grade)) grade = "B";
+    }
+  };
+
+  if (confidence_0_100 < 65) {
+    capTo("C");
+    grade_cap_reason = "Confidence < 65: grade capped at C";
+  } else if (confidence_0_100 < 80) {
+    capTo("B");
+    grade_cap_reason = "Confidence 65–79: grade capped at B";
   }
+
+  const broken_nav_failure_rate = navChecked ? navFailed / navChecked : 0;
+  const sitemapProvesCoverage = s.has_sitemap && sitemapParsed >= 20;
+
+  const serviceTimesMissing = E1.score01 === 0;
+  const addressMissing = E2.score01 === 0;
+  const eventsStale = typeof eventsDays === "number" ? eventsDays > 90 && !eventsExplicitNone : (E7.status === "missing");
+  const sermonsStale = typeof sermonsDays === "number" ? sermonsDays > 183 && !sermonsExplicitNone : (E9.status === "missing");
+  const lowCoverageForA = pagesChecked < 6 && !sitemapProvesCoverage;
+
+  const a_forbidden = serviceTimesMissing || addressMissing || eventsStale || sermonsStale || broken_nav_failure_rate > 0.10 || lowCoverageForA;
+  if (a_forbidden && /^A/.test(grade)) {
+    grade = "B+";
+    grade_cap_reason = (grade_cap_reason ? grade_cap_reason + "; " : "") + "A-eligibility failed";
+  }
+
+  // =============================
+  // Top risks (must never be empty)
+  // =============================
+  const risk = (msg: string) => { if (!top_risks.includes(msg)) top_risks.push(msg); };
+
+  const explainUnknown = (label: string) => `Cannot verify ${label} due to site rendering/blocked; confidence reduced.`;
+
+  if (E1.status === "missing") risk("No service times found");
+  if (E1.status === "unknown") risk(explainUnknown("service times"));
+
+  if (E2.status === "missing") risk("No physical address found");
+  if (E2.status === "unknown") risk(explainUnknown("physical address"));
+
+  if (E3.status === "missing") risk("No map/directions link found");
+  if (E3.status === "unknown") risk(explainUnknown("map/directions"));
+
+  if (eventsStale) risk("No recent/upcoming events detected (90-day window)");
+  if (E7.status === "unknown") risk(explainUnknown("events recency"));
+
+  if (sermonsStale) risk("Sermons/media archive appears stale (6-month window)");
+  if (E9.status === "unknown") risk(explainUnknown("sermons recency"));
+
+  if (broken_nav_failure_rate > 0.10) risk("Broken navigation links above threshold (>10%)");
+
+  if (!top_risks.length) risk("No critical risks detected from available evidence");
+
+  // Keep red flags aligned
+  if (grade_cap_reason) red_flags.push(grade_cap_reason);
 
   const website_quality_check: WebsiteQualityCheck = {
     speed: "weak", // Public scan: PSI/Core Web Vitals not integrated yet
@@ -471,10 +629,16 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   const normalizedCatMap = normalizeCategoryScores(catMap);
 
   return {
+    score_0_100: ekklesiaScore,
+    confidence_0_100,
+    grade_uncapped,
+    grade,
+    grade_cap_reason,
+
+    // legacy/back-compat
     ekklesiaScore,
     raw_total,
     penalties_total,
-    grade: gradeFor(ekklesiaScore),
     strengths: strengths.slice(0, 8),
     red_flags: red_flags.slice(0, 8),
     priority_actions: priority_actions.slice(0, 10),
@@ -489,7 +653,7 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
       caps,
       penalties,
       flags,
-      a_grade_allowed,
+      a_grade_allowed: !a_forbidden,
     },
   };
 }

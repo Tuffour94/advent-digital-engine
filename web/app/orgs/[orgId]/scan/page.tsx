@@ -83,7 +83,8 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
         {latestJob && latestArtifact?.data ? (
           (() => {
             const a: any = latestArtifact.data;
-            const ekk = a.ekklesiaScore ?? a.ekklesia_score ?? 0;
+            const ekk = a.score_0_100 ?? a.ekklesiaScore ?? a.ekklesia_score ?? 0;
+            const conf = a.confidence_0_100 ?? null;
             const grade = a.grade ?? "—";
             const catScores = a.category_scores ? (Object.values(a.category_scores).filter(Boolean) as any[]) : [];
             const redFlags = (a.red_flags ?? a.redFlags ?? []) as any[];
@@ -95,6 +96,7 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
               <>
                 <div className="mt-2 text-xs text-slate-600">
                   {new Date(latestJob.created_at).toLocaleString()} • status: {latestJob.status} • cache_hit: {String(latestJob.cache_hit)}
+                  {typeof conf === 'number' ? ` • confidence: ${conf}/100` : ''}
                 </div>
 
                 {/* Badge + stacked bar */}
