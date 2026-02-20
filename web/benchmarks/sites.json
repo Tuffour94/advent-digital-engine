@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "sites": [
+    {
+      "url": "https://example.com",
+      "bucket": "average",
+      "notes": "REPLACE ME — benchmark placeholder entry. Remove before merging to main.",
+      "owner": "wip",
+      "added_at": "2026-02-20"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ADE Benchmark Sites",
+  "type": "object",
+  "required": ["version", "sites"],
+  "properties": {
+    "version": { "type": "integer" },
+    "sites": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url", "bucket", "notes"],
+        "properties": {
+          "url": { "type": "string" },
+          "bucket": { "type": "string", "enum": ["excellent", "good", "average", "poor"] },
+          "notes": { "type": "string" },
+          "owner": { "type": "string" },
+          "added_at": { "type": "string" }
+        }
+      }
+    }
+  }
+}
