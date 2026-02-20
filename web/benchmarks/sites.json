@@ -2,10 +2,17 @@
   "version": 1,
   "sites": [
     {
-      "url": "https://example.com",
-      "bucket": "average",
-      "notes": "REPLACE ME — benchmark placeholder entry. Remove before merging to main.",
-      "owner": "wip",
+      "url": "https://www.ketteringadventist.org/",
+      "bucket": "good",
+      "notes": "Modern, content-rich church site. Should outrank single-page/low-content sites.",
+      "owner": "francis",
+      "added_at": "2026-02-20"
+    },
+    {
+      "url": "https://abideoh.adventistchurch.org/",
+      "bucket": "poor",
+      "notes": "Single-page/limited depth site (tested via https://abideoh.adventistchurch.org/#about-sda). Should score materially lower than Kettering.",
+      "owner": "francis",
       "added_at": "2026-02-20"
     }
   ]

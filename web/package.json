@@ -9,7 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "benchmarks:gate": "npx --yes tsx scripts/benchmarks.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
