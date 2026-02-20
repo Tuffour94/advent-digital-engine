@@ -138,6 +138,9 @@ export default async function ScanJobPage({
         <div className="mt-2 text-sm text-slate-600">
           Job: <span className="font-mono text-xs">{jobId}</span> • status: {job?.status ?? "—"} • cache_hit: {String(job?.cache_hit ?? false)} • used_ai: {String(job?.used_ai ?? false)}
         </div>
+        <div className="mt-1 text-[11px] text-slate-500">
+          env: {process.env.VERCEL_ENV ?? "unknown"} • commit: {(process.env.VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 7) || "unknown"}
+        </div>
         <div className="mt-1 text-xs text-slate-500">{job?.created_at ? new Date(job.created_at).toLocaleString() : ""}</div>
         {job?.error ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">{job.error}</div> : null}
       </div>
