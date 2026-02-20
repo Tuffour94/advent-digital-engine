@@ -85,7 +85,7 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
             const a: any = latestArtifact.data;
             const ekk = a.ekklesiaScore ?? a.ekklesia_score ?? 0;
             const grade = a.grade ?? "—";
-            const catScores = a.category_scores ? Object.values(a.category_scores) : [];
+            const catScores = a.category_scores ? (Object.values(a.category_scores).filter(Boolean) as any[]) : [];
             const redFlags = (a.red_flags ?? a.redFlags ?? []) as any[];
             const actions = (a.priority_actions ?? a.priorityActions ?? []) as any[];
             const wins = (a.top_wins ?? []) as any[];
@@ -125,20 +125,20 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
 
                   {/* Traffic-light chips */}
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {a.category_scores?.giving ? (
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${a.category_scores.giving.score >= 10 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>Giving</span>
+                    {a.category_scores?.trust_eeat ? (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${(a.category_scores.trust_eeat?.score ?? 0) >= 10 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>Trust</span>
                     ) : null}
-                    {a.category_scores?.contact ? (
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${a.category_scores.contact.score >= 10 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>Contact</span>
+                    {a.category_scores?.events_freshness ? (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${(a.category_scores.events_freshness?.score ?? 0) >= 10 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>Freshness</span>
                     ) : null}
-                    {a.category_scores?.events ? (
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${a.category_scores.events.score >= 10 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>Events</span>
+                    {a.category_scores?.media_sermons ? (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${(a.category_scores.media_sermons?.score ?? 0) >= 7 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>Sermons</span>
                     ) : null}
-                    {a.category_scores?.media ? (
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${a.category_scores.media.score >= 10 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>Media</span>
+                    {a.category_scores?.giving_support ? (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${(a.category_scores.giving_support?.score ?? 0) >= 6 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>Giving</span>
                     ) : null}
-                    {a.category_scores?.mobile ? (
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${a.category_scores.mobile.score >= 6 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>Mobile</span>
+                    {a.category_scores?.ux_navigation ? (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${(a.category_scores.ux_navigation?.score ?? 0) >= 8 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>UX</span>
                     ) : null}
                   </div>
                 </div>
@@ -162,7 +162,7 @@ export default async function ScanPage({ params }: { params: Promise<{ orgId: st
                 {/* Breakdown */}
                 {a.category_scores ? (
                   <div className="mt-4 grid gap-3">
-                    {Object.values(a.category_scores).map((c: any) => {
+                    {Object.values(a.category_scores).filter(Boolean).map((c: any) => {
                       const pct = Math.round((c.score / c.weight) * 100);
                       return (
                         <div key={c.key} className="rounded-xl border border-slate-200 p-3">

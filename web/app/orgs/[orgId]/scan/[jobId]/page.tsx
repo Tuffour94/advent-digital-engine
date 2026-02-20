@@ -74,7 +74,7 @@ export default async function ScanJobPage({
 
   const ekk = a?.ekklesiaScore ?? 0;
   const grade = a?.grade ?? "—";
-  const cats = a?.category_scores ? (Object.values(a.category_scores) as any[]) : [];
+  const cats = a?.category_scores ? ((Object.values(a.category_scores).filter(Boolean) as any[])) : [];
   const wins = (a?.top_wins ?? a?.strengths ?? []).slice(0, 3);
 
   // Hard risks + soft risks (largest gaps) so Top Risks is never empty.
