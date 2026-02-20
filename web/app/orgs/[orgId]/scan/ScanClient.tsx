@@ -14,6 +14,11 @@ export default function ScanClient({ orgId }: { orgId: string }) {
   async function start() {
     setErr(null);
     if (!website.trim()) return setErr("Website URL is required.");
+    const normalizeUrl = (s: string) => {
+      const t = s.trim();
+      if (!t) return t;
+      return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(t) ? t : `https://${t}`;
+    };
     setBusy(true);
     try {
       const resp = await fetch("/api/scan/start", {
@@ -21,9 +26,9 @@ export default function ScanClient({ orgId }: { orgId: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           org_id: orgId,
-          website_url: website.trim(),
-          youtube_url: youtube.trim() || null,
-          facebook_url: facebook.trim() || null,
+          website_url: normalizeUrl(website),
+          youtube_url: youtube.trim() ? normalizeUrl(youtube) : null,
+          facebook_url: facebook.trim() ? normalizeUrl(facebook) : null,
         }),
       });
       const json = await resp.json().catch(() => ({}));
@@ -42,7 +47,7 @@ export default function ScanClient({ orgId }: { orgId: string }) {
       <input
         value={website}
         onChange={(e) => setWebsite(e.target.value)}
-        placeholder="Website URL (required)"
+        placeholder="Website URL (required) — you can paste: example.com"
         className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
       />
       <input

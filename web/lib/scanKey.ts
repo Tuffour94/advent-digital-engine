@@ -10,11 +10,30 @@ export type ScanInputs = {
   facebook_url?: string | null;
 };
 
+function normalizeUrlMaybe(raw: string) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+
+  // Accept inputs like "example.com" or "www.example.com" by assuming https.
+  const withScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(s) ? s : `https://${s}`;
+
+  try {
+    const u = new URL(withScheme);
+    // Canonicalize: drop hash, trim trailing slash (except root), keep protocol+host+path+query
+    u.hash = "";
+    const out = u.toString();
+    return out.endsWith("/") && u.pathname !== "/" ? out.slice(0, -1) : out;
+  } catch {
+    // If still invalid, return original trimmed (executor will throw a clear error)
+    return s;
+  }
+}
+
 export function normalizeInputs(inputs: ScanInputs) {
   return {
-    website_url: String(inputs.website_url || "").trim(),
-    youtube_url: String(inputs.youtube_url || "").trim() || null,
-    facebook_url: String(inputs.facebook_url || "").trim() || null,
+    website_url: normalizeUrlMaybe(inputs.website_url),
+    youtube_url: inputs.youtube_url ? normalizeUrlMaybe(inputs.youtube_url) : null,
+    facebook_url: inputs.facebook_url ? normalizeUrlMaybe(inputs.facebook_url) : null,
   };
 }
 
