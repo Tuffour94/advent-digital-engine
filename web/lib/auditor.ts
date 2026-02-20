@@ -264,36 +264,52 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
 
   const catMap: Record<string, CategoryScore> = Object.fromEntries(categories.map((c) => [c.key, c]));
 
-  if (catMap.mission_identity.score >= 15) strengths.push("Clear mission/identity signals on public pages");
-  else priority_actions.push("Add a clear mission statement + ‘Who we are’ summary above the fold");
+  // Defensive: always initialize all 7 expected pillars (prevents runtime crashes).
+  const expected: Array<{ key: string; label: string; weight: number }> = [
+    { key: "website_quality", label: "Website Quality", weight: 20 },
+    { key: "ux_navigation", label: "UX & Navigation", weight: 15 },
+    { key: "content_depth", label: "Content Depth & Usefulness", weight: 15 },
+    { key: "trust_eeat", label: "Trust / Legitimacy", weight: 15 },
+    { key: "events_freshness", label: "Events / Freshness", weight: 15 },
+    { key: "media_sermons", label: "Media / Sermons", weight: 10 },
+    { key: "giving_support", label: "Giving / Support", weight: 10 },
+  ];
+  for (const e of expected) {
+    if (!catMap[e.key]) catMap[e.key] = { key: e.key, label: e.label, weight: e.weight, score: 0, reasons: [] };
+  }
 
-  if (catMap.events_freshness.score >= 12) strengths.push("Events/Calendar signals present");
+  const scoreOf = (k: string) => catMap[k]?.score ?? 0;
+
+  // Strengths / risks (defensive, no assumptions about pillar existence)
+  if (scoreOf("trust_eeat") >= 11) strengths.push("Clear trust/legitimacy signals (about/leadership/address) detected");
+  else priority_actions.push("Improve trust signals: add About/Beliefs, leadership bios, and a clear address/map/service times");
+
+  if (scoreOf("events_freshness") >= 10) strengths.push("Events/Calendar freshness signals present");
   else {
-    red_flags.push("No events/calendar signals detected");
+    red_flags.push("Events freshness looks weak (or not detectable)");
     priority_actions.push("Add an Events/Calendar page and keep it updated monthly");
   }
 
-  if (catMap.giving_support.score >= 15) strengths.push("Giving/donation path detected");
+  if (scoreOf("media_sermons") >= 7) strengths.push("Sermon/media signals present");
   else {
-    red_flags.push("No online giving link detected");
-    priority_actions.push("Add a Give/Donate link in main navigation (with a trusted provider)");
-  }
-
-  if (catMap.media_sermons.score >= 12) strengths.push("Sermon/media signals detected");
-  else {
-    red_flags.push("No sermon/media/livestream signals detected");
+    red_flags.push("Sermon/media signals look weak (or not detectable)");
     priority_actions.push("Add a Sermons/Messages page and link it from the main navigation");
   }
 
-  if (catMap.contact_visitability.score >= 12) strengths.push("Contact/visit path detected");
+  if (scoreOf("giving_support") >= 6) strengths.push("Giving/support path detected");
   else {
-    red_flags.push("No clear contact path detected");
-    priority_actions.push("Add a Contact page with service times, address, phone/email, and a simple contact form");
+    red_flags.push("Giving/support path not detected");
+    priority_actions.push("Add a Give/Donate link in the main navigation (trusted provider) — do not hide it");
   }
 
-  if (catMap.website_quality.score < 10) {
-    red_flags.push("Website quality signals are weak (speed/mobile/content/trust)");
-    priority_actions.push("Improve site usability: speed, mobile layout, content depth, and accessibility basics");
+  if (scoreOf("ux_navigation") < 7) {
+    red_flags.push("UX/navigation clarity looks weak (CTA, navigation, broken links)");
+    priority_actions.push("Improve homepage clarity (Plan a Visit / Watch / Give) and clean up navigation");
+  }
+
+  if (scoreOf("website_quality") < 8) {
+    red_flags.push("Website quality signals are weak (public scan proxies only)");
+    priority_actions.push("Improve mobile layout and accessibility basics; run PSI once integrated for Core Web Vitals");
   }
 
   // Scoring v2: confidence dampening (do not destroy the score)
