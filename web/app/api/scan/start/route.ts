@@ -4,7 +4,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { scoutWebsiteV2 } from "@/lib/scout";
 import { auditorFromScoutV2 } from "@/lib/auditor";
-import { fetchPageSpeedInsightsMobile } from "@/lib/pagespeed";
 import { scanInputHash, normalizeInputs, SCOUT_VERSION, AUDITOR_VERSION, REPORT_SCHEMA_VERSION } from "@/lib/scanKey";
 
 export const dynamic = "force-dynamic";
@@ -154,24 +153,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2) Raw Metrics: PageSpeed Insights (mobile)
-    const psi = await fetchPageSpeedInsightsMobile(inputs.website_url);
-    const psiArtifact = {
-      org_id,
-      job_id: job.id,
-      artifact_type: "metrics.pagespeed",
-      input_hash,
-      version: ARTIFACT_VERSION,
-      data: {
-        _meta: { artifact_version: ARTIFACT_VERSION, code_commit },
-        ...psi,
-      },
-    };
-    await admin
-      .from("scan_artifacts")
-      .upsert(psiArtifact, { onConflict: "org_id,artifact_type,input_hash,version" });
-
-    // 3) Auditor (derived scoring; will be rebuilt to consume Layer 1 metrics)
+    // 2) Auditor
     const score = auditorFromScoutV2(scoutReport);
 
     // Hard requirements for Auditor schema
