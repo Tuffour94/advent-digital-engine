@@ -157,9 +157,17 @@ export async function POST(req: Request) {
     const score = auditorFromScoutV2(scoutReport);
 
     // Hard requirements for Auditor schema
-    if (!score.category_scores || Object.keys(score.category_scores).length === 0) throw new Error("Auditor schema invalid: category_scores missing");
-    if (!score.evidence || score.evidence.length === 0) throw new Error("Auditor schema invalid: evidence[] empty");
-    if (!score.pages_checked || score.pages_checked.length === 0) throw new Error("Auditor schema invalid: pages_checked[] empty");
+    if (!score.category_scores || Object.keys(score.category_scores).length === 0) throw new Error("ERR_AUDITOR_SCHEMA_INVALID: category_scores missing");
+    if (!score.evidence || score.evidence.length === 0) throw new Error("ERR_AUDITOR_SCHEMA_INVALID: evidence[] empty");
+    if (!score.pages_checked || score.pages_checked.length === 0) throw new Error("ERR_AUDITOR_SCHEMA_INVALID: pages_checked[] empty");
+
+    // Strict validator (fail fast with clear code)
+    const { normalizeCategoryScores, validateCategoryScoresStrict, SCORE_SCHEMA_VERSION } = await import("@/lib/scoreSchema");
+    const normalized = normalizeCategoryScores(score.category_scores);
+    const v = validateCategoryScoresStrict(normalized);
+    if (!v.ok) throw new Error(`ERR_AUDITOR_SCHEMA_MISMATCH: ${v.error}`);
+    (score as any).category_scores = normalized;
+    (score as any)._score_schema_version = SCORE_SCHEMA_VERSION;
 
     const auditorArtifact = {
       org_id,

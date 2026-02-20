@@ -1,6 +1,6 @@
 // Deterministic scan cache key (must stay stable across UI/executor)
 
-export const REPORT_SCHEMA_VERSION = 1;
+export const REPORT_SCHEMA_VERSION = 2;
 export const SCOUT_VERSION = 3;
 export const AUDITOR_VERSION = 4;
 

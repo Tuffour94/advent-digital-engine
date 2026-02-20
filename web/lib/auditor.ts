@@ -466,6 +466,10 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
     maintenance: report.signals.broken_nav_links.length <= 1 ? "up_to_date" : "stale",
   };
 
+  // Final schema normalization (never return missing pillars)
+  const { normalizeCategoryScores } = require("@/lib/scoreSchema");
+  const normalizedCatMap = normalizeCategoryScores(catMap);
+
   return {
     ekklesiaScore,
     raw_total,
@@ -477,7 +481,7 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
     top_wins,
     top_risks,
     recommended_next_steps,
-    category_scores: catMap,
+    category_scores: normalizedCatMap,
     evidence: report.evidence,
     pages_checked: report.pages_checked.map((p) => ({ url: p.final_url, status: p.status, title: p.title })),
     website_quality_check,
