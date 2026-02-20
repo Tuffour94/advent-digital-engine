@@ -37,8 +37,42 @@ async function main() {
 
   const byBucket = (b: Bucket) => sites.filter((s) => s.bucket === b);
 
-  // Gate: require full 40-site benchmark set before allowing merges.
-  // This makes it impossible to "tune" without ground truth.
+  const results: Record<string, any> = {};
+
+  // Targeted gate (runs even when the full benchmark set is incomplete)
+  const ketteringUrl = "https://www.ketteringadventist.org/";
+  const abiUrl = "https://abideoh.adventistchurch.org/";
+
+  const hasK = sites.some((s) => s.url === ketteringUrl);
+  const hasA = sites.some((s) => s.url === abiUrl);
+  if (!hasK || !hasA) {
+    throw new Error(`TARGET_GATE_MISSING_URLS: need Kettering + ABI in benchmarks/sites.json`);
+  }
+
+  console.log("\nRunning targeted gate: Kettering vs ABI");
+  results[ketteringUrl] = results[ketteringUrl] ?? (await scoreUrl(ketteringUrl));
+  results[abiUrl] = results[abiUrl] ?? (await scoreUrl(abiUrl));
+
+  const k = results[ketteringUrl];
+  const a = results[abiUrl];
+
+  const delta = (k.score ?? 0) - (a.score ?? 0);
+  console.log(`Kettering score=${k.score} conf=${k.confidence} grade=${k.grade}`);
+  console.log(`ABI score=${a.score} conf=${a.confidence} grade=${a.grade}`);
+  console.log(`Delta: ${delta}`);
+
+  if (delta < 15) {
+    throw new Error(`TARGET_GATE_FAIL: score(Kettering)-score(ABI)=${delta} < 15`);
+  }
+
+  // Grade safety: ABI cannot exceed C unless confidence>=80 (and evidence completeness will enforce essentials in scoring)
+  const abiGrade = String(a.grade || "");
+  const abiConf = Number(a.confidence ?? 0);
+  if ((abiGrade.startsWith("A") || abiGrade.startsWith("B")) && abiConf < 80) {
+    throw new Error(`TARGET_GATE_FAIL: ABI grade ${abiGrade} not allowed with confidence ${abiConf} (<80)`);
+  }
+
+  // Full benchmark gate (40 sites) — merge blocker for final scoring.
   const req = { excellent: 10, good: 10, average: 10, poor: 10 } as const;
   for (const [b, n] of Object.entries(req) as any) {
     const count = byBucket(b as Bucket).length;
@@ -47,7 +81,6 @@ async function main() {
     }
   }
 
-  const results: Record<string, any> = {};
   for (const s of sites) {
     console.log(`Scoring ${s.bucket}: ${s.url}`);
     results[s.url] = await scoreUrl(s.url);

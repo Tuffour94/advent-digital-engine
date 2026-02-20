@@ -139,7 +139,19 @@ export function auditorFromScoutV2(report: ScoutReport): AuditorScoreV2 {
   const avgH2 = pageCount ? Math.round(pages.reduce((acc: number, p: any) => acc + (p.h2_count ?? 0), 0) / pageCount) : 0;
   const textDepth01 = avgTextLen >= 2800 ? 1 : avgTextLen >= 1600 ? 0.75 : avgTextLen >= 900 ? 0.55 : avgTextLen >= 450 ? 0.35 : 0.15;
   const structure01 = avgH2 >= 4 ? 1 : avgH2 >= 2 ? 0.7 : avgH2 >= 1 ? 0.5 : 0.25;
-  const contentUsefulness01 = score01(0.6 * textDepth01 + 0.4 * structure01);
+  let contentUsefulness01 = score01(0.6 * textDepth01 + 0.4 * structure01);
+
+  // Robustness: single-page or near-single-page sites should NOT score like multi-page, structured sites.
+  // Deterministic heuristics:
+  // - If only 1–2 distinct pages, cap usefulness regardless of text size (prevents giant template blobs inflating score).
+  // - If text is huge but structure is weak, also cap.
+  const distinctPages = new Set(pages.map((p: any) => p.final_url)).size;
+  if (distinctPages <= 2) {
+    contentUsefulness01 = Math.min(contentUsefulness01, 0.35);
+  }
+  if (pageCount <= 2 && avgTextLen > 12000) {
+    contentUsefulness01 = Math.min(contentUsefulness01, 0.35);
+  }
 
   // Accessibility proxy (alt coverage)
   const a11y01 = avgAltRatio >= 0.8 ? 1 : avgAltRatio >= 0.6 ? 0.75 : avgAltRatio >= 0.35 ? 0.5 : avgAltRatio >= 0.2 ? 0.35 : 0.2;
